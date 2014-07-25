@@ -22,9 +22,9 @@ type Pattern interface {
 }
 
 /**
-Rivet 用于生成 Context 实例, 需要用户实现.
+Riveter 用于生成 Context 实例, 需要用户实现.
 */
-type Rivet interface {
+type Riveter interface {
 	// Context 生成 Context 实例
 	Context(res http.ResponseWriter, req *http.Request) Context
 }
@@ -39,7 +39,7 @@ type Context interface {
 	// Source 返回产生 Context 的参数
 	Source() (http.ResponseWriter, *http.Request)
 	/**
-	Run 负责处理 http.Request
+	Invoke 负责调用 http.Request Handler
 	参数:
 		params 含有路由匹配模式提取到的参数
 			为 nil, 那一定是匹配失败.
@@ -48,7 +48,7 @@ type Context interface {
 			当设置了 NotFound Handler 时, 也会通过此方法传递.
 			如果匹配失败, 且没有设置 NotFound Handler, 此值为 nil.
 	*/
-	Run(params Params, handlers ...Handler)
+	Invoke(params Params, handlers ...Handler)
 }
 
 /**
@@ -56,9 +56,9 @@ Route 负责匹配 urls, 并支持使用不同的 Context 处理 http Request.
 */
 type Route interface {
 	/**
-	Rivet 绑定 Rivet 实例.
+	Rivet 绑定 Riveter 实例.
 	*/
-	Rivet(rivet Rivet)
+	Rivet(rivet Riveter)
 	/**
 	Match 匹配 strings.Split(req.URL.Path, "/") 分割后的 urls.
 	如果匹配成功, 通过 rivet.Context 生成 Context 实例并处理 Handler, 返回 true, 否则返回 false.
@@ -70,9 +70,9 @@ type Route interface {
 }
 
 /**
-Router 实例在 http.Request 时会通过匹配到的 Route 调用 Context.Run.
+Router 实例在 http.Request 时会通过匹配到的 Route 调用 Context.Invoke.
 事实上为了能正常调用 Route.Match 方法, 生成 Router 的方法需要 Rivet 实例参数.
-特别的, 如果不设定 NotFound Handler, 直接调用 http.NotFound, 不调用 Context.Run.
+特别的, 如果不设定 NotFound Handler, 直接调用 http.NotFound, 不调用 Context.Invoke.
 多级路由匹配次序:
 	第一级
 		Method 路由  指定 http.Request.Method

@@ -42,15 +42,17 @@ rivet
 ====
 
 实现这两个接口就可以自主控制 Context 的生成.
+rivet 提供了一个实现, 您也可以直接使用.
 
 ```go
 /**
-Rivet 用于生成 Context 实例, 需要用户实现.
+Riveter 用于生成 Context 实例, 需要用户实现.
 */
-type Rivet interface {
+type Riveter interface {
     // Context 生成 Context 实例
     Context(res http.ResponseWriter, req *http.Request) Context
 }
+
 /**
 Context 是实际的 http Request 处理对象.
 */
@@ -58,9 +60,16 @@ type Context interface {
     // Source 返回产生 Context 的参数
     Source() (http.ResponseWriter, *http.Request)
     /**
-    Run 负责处理 http.Request
+    Invoke 负责调用 http.Request Handler
+    参数:
+        params 含有路由匹配模式提取到的参数
+            为 nil, 那一定是匹配失败.
+            即便 len(params) 为 0 也表示匹配成功.
+        handlers 由 Router 匹配得到.
+            当设置了 NotFound Handler 时, 也会通过此方法传递.
+            如果匹配失败, 且没有设置 NotFound Handler, 此值为 nil.
     */
-    Run(params Params, handlers ...Handler)
+    Invoke(params Params, handlers ...Handler)
 }
 ```
 
@@ -77,42 +86,17 @@ import (
     "github.com/typepress/rivet"
 )
 
-func main() {
-
-    mux := rivet.NewRouter(Rivet{})
-    mux.Get("/hello/:name", Hello) // 设置 GET 路由
-
-    http.ListenAndServe(":3000", mux) // rivet.Router 符合 http.Handler 接口
-}
-
 // 简单的 handler
 func Hello(w http.ResponseWriter, params rivet.Params) {
     w.Write([]byte("Hello " + params["name"].(string)))
 }
 
-// 实现两个类型三个方法
-type Rivet struct{}
-type Context struct {
-    res http.ResponseWriter
-    req *http.Request
-}
+func main() {
 
-func (r Rivet) Context(res http.ResponseWriter, req *http.Request) rivet.Context {
-    return &Context{res, req}
-}
-func (c *Context) Source() (http.ResponseWriter, *http.Request) {
-    return c.res, c.req
-}
+    mux := rivet.NewRouter(nil) // 传递 nil, 会使用内部的 Rivet 实现
+    mux.Get("/hello/:name", Hello) // 设置 GET 路由
 
-func (c *Context) Run(params rivet.Params, handlers ...rivet.Handler) {
-    for _, h := range handlers {
-        switch fn := h.(type) {
-        case func(http.ResponseWriter, *http.Request):
-            fn(c.res, c.req)
-        case func(http.ResponseWriter, rivet.Params):
-            fn(c.res, params)
-        }
-    }
+    http.ListenAndServe(":3000", mux) // rivet.Router 符合 http.Handler 接口
 }
 ```
 

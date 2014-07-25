@@ -6,7 +6,7 @@ import (
 )
 
 type router struct {
-	rivet     Rivet
+	rivet     Riveter
 	notFounds *baseRoute
 	get,
 	patch,
@@ -21,11 +21,11 @@ type router struct {
 /**
 NewRouter 创建符合 Router 接口的实例.
 参数:
-	rivet 用于生成 Context 实例, 不能为 nil.
+	rivet 用于生成 Context 实例, 如果为 nil 使用 New() 创建一个.
 */
-func NewRouter(rivet Rivet) Router {
+func NewRouter(rivet Riveter) Router {
 	if rivet == nil {
-		panic("rivet: want Rivet, but is nil")
+		rivet = New()
 	}
 	r := &router{
 		rivet:   rivet,
@@ -87,7 +87,7 @@ func (r *router) NotFound(h ...Handler) Route {
 	return route
 }
 
-func (r *router) Rivet(rivet Rivet) {
+func (r *router) Rivet(rivet Riveter) {
 	r.rivet = rivet
 }
 
@@ -209,7 +209,7 @@ type baseRoute struct {
 	用于模式匹配时参见 route 说明
 	*/
 	prefix   string
-	rivet    Rivet
+	rivet    Riveter
 	handlers []Handler
 }
 
@@ -344,7 +344,7 @@ func newRoute(pattern string, handlers []Handler) (r *route) {
 	return
 }
 
-func (r *baseRoute) Rivet(rivet Rivet) {
+func (r *baseRoute) Rivet(rivet Riveter) {
 	r.rivet = rivet
 }
 
@@ -360,9 +360,9 @@ func (r *baseRoute) Match(urls []string, context Context) bool {
 	}
 
 	if r.rivet == nil {
-		context.Run(nil, r.handlers...)
+		context.Invoke(nil, r.handlers...)
 	} else {
-		r.rivet.Context(context.Source()).Run(nil, r.handlers...)
+		r.rivet.Context(context.Source()).Invoke(nil, r.handlers...)
 	}
 	return true
 }
@@ -407,7 +407,7 @@ func (r *route) match(urls []string) int {
 	return 0
 }
 
-// 模式匹配并调用 context.Run
+// 模式匹配并调用 context.Invoke
 func (r *route) apply(urls []string, context Context) bool {
 	params := Params{}
 	size := uint8(len(r.index))
@@ -427,9 +427,9 @@ func (r *route) apply(urls []string, context Context) bool {
 	}
 
 	if r.rivet == nil {
-		context.Run(params, r.handlers...)
+		context.Invoke(params, r.handlers...)
 	} else {
-		r.rivet.Context(context.Source()).Run(params, r.handlers...)
+		r.rivet.Context(context.Source()).Invoke(params, r.handlers...)
 	}
 	return true
 }

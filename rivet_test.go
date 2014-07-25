@@ -7,37 +7,20 @@ import (
 	"testing"
 )
 
-type testRivet struct{}
-type testContext struct {
-	res http.ResponseWriter
-	req *http.Request
-}
-
-func (r testRivet) Context(res http.ResponseWriter, req *http.Request) Context {
-	return &testContext{res, req}
-}
-func (c *testContext) Source() (http.ResponseWriter, *http.Request) {
-	return c.res, c.req
-}
-func (c *testContext) Run(params Params, handlers ...Handler) {
-	for _, h := range handlers {
-		switch fn := h.(type) {
-		default:
-			panic(h)
-		case http.HandlerFunc:
-			fn(c.res, c.req)
-		case func(http.ResponseWriter, *http.Request):
-			fn(c.res, c.req)
-		case func(Params):
-			fn(params)
-		case func(*http.Request):
-			fn(c.req)
+func Test_Map(t *testing.T) {
+	req := &http.Request{}
+	c := New().Context(nil, req).(*Rivet)
+	id := T(req)
+	if nil == c.Get(id) {
+		for i := 0; i < len(c.arg); i++ {
+			fmt.Printf("%v %#x %#x\n", i, id, c.arg[i].t)
 		}
+		t.Fatal()
 	}
 }
 
 func Test_Routing(t *testing.T) {
-	mux := NewRouter(testRivet{}).(*router)
+	mux := NewRouter(nil).(*router)
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
