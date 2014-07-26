@@ -53,7 +53,6 @@ func Test_Routing(t *testing.T) {
 		result += restr + "prefix*"
 	})
 	want(len(mux.get.routes), 2)
-	want(mux.get.routes[0].begin, mux.get.routes[1].begin)
 
 	mux.Post("/foo/post:id", func(params Params) {
 		want(params["id"], 6)

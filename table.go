@@ -45,16 +45,19 @@ func (t *table) addRoute(r *route) {
 		}
 		n := rs[i].cmp(r)
 		if n == 0 {
-			begin = rs[i].begin
+			begin = rs[i].begin // 同类, 标记同类开始下标
 			// 替换重复
 			if rs[i].prefix == r.prefix {
 				r.begin = rs[i].begin
 				rs[i] = r
 				r = nil
+			} else {
+				// 类别相同, 第一 pattern 前缀排序
+				n = rs[i].cmpattern(r.pattern[0].prefix)
 			}
-			//n = rs[i].cmpattern(r)
 		}
-		// r < i , 左移
+
+		// r < rs[i] , 左移
 		return n == 1
 	})
 
@@ -63,24 +66,22 @@ func (t *table) addRoute(r *route) {
 		return
 	}
 
-	// 设置 index
+	// 没有匹配到, 那么此类别的开始下标为 n, n == size
 	if begin == -1 {
 		begin = n
 	}
 	r.begin = begin
 
-	// 如果要加锁, 应该从这里开始
-
 	rs = append(rs, nil)
-	if n != size {
-		copy(rs[n+1:], t.routes[n:])
-	}
-	rs[n] = r
-	for i := n + 1; i <= size; i++ {
+
+	for i := size; i > n; i-- {
+		rs[i] = rs[i-1]
 		if rs[i].begin != begin {
 			rs[i].begin++
 		}
 	}
+	rs[n] = r
+
 	t.routes = rs
 }
 
@@ -115,6 +116,7 @@ func (t *table) Match(urls []string, context Context) bool {
 	return false
 }
 
+// MatchUrl 匹配字面值路由
 func (t *table) MatchUrl(url string, context Context) bool {
 	r := t.literal[url]
 	if r == nil {

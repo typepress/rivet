@@ -148,6 +148,7 @@ type pattern struct {
 	Pattern
 	name           string // 全空表示 "*"
 	prefix, suffix string // 前后缀
+	idx            uint8  // 在 urls 中的下标
 }
 
 func newPattern(s string) *pattern {

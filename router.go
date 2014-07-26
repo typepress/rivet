@@ -285,24 +285,21 @@ func (r *route) cmp(z *route) int {
 	return 0
 }
 
-// 字面值都相等, 比较 pattern 前后缀, 用于插入位置
-func (r *route) cmpattern(z *route) int {
-	rp, zp := r.pattern, z.pattern
-	for i := 0; i < len(rp); i++ {
-		if rp[i].prefix < zp[i].prefix {
-			return -1
-		}
-		if rp[i].prefix > zp[i].prefix {
-			return 1
-		}
-		if rp[i].suffix < zp[i].suffix {
-			return -1
-		}
-		if rp[i].suffix > zp[i].suffix {
-			return 1
-		}
+/**
+字面值都相等, 比较 pattern 前后缀, 用于插入位置,
+现在的算法只能匹配第一个 pattern 前缀
+*/
+func (r *route) cmpattern(zp string) int {
+	rp := r.pattern[0].prefix
+
+	if rp == zp {
+		return 0
 	}
-	return 0
+	if rp < zp {
+		return -1
+	}
+
+	return 1
 }
 
 // newRoute 如果返回为 nil 表示静态路由, 由调用方处理
@@ -323,7 +320,6 @@ func newRoute(pattern string, handlers []Handler) (r *route) {
 	r.handlers = handlers
 	r.num = len(urls)
 
-	at := 0
 	for i, s := range urls {
 		if i == 0 { // 第一个总是为 ""
 			continue
@@ -331,10 +327,8 @@ func newRoute(pattern string, handlers []Handler) (r *route) {
 
 		p := newPattern(s)
 		if p != nil {
+			p.idx = uint8(i)
 			r.pattern = append(r.pattern, p)
-			if at == 0 {
-				at = i
-			}
 			continue
 		}
 		r.index = append(r.index, uint8(i))
@@ -410,19 +404,15 @@ func (r *route) match(urls []string) int {
 // 模式匹配并调用 context.Invoke
 func (r *route) apply(urls []string, context Context) bool {
 	params := Params{}
-	size := uint8(len(r.index))
-
-	var n, i, ri uint8
-	for i = 1; i < uint8(r.num); i++ {
-		if n < size && i == r.index[n] {
-			n++
-			continue // 跳过字面
-		}
-		if v, ok := r.pattern[ri].Match(urls[i]); ok {
-			params[r.pattern[ri].name] = v
-			ri++
-		} else {
+	var v interface{}
+	var ok bool
+	for _, p := range r.pattern {
+		v, ok = p.Match(urls[p.idx])
+		if !ok {
 			return false
+		}
+		if p.name != "" {
+			params[p.name] = v
 		}
 	}
 
