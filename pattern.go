@@ -146,67 +146,43 @@ func (n patternHex) Match(s string) (interface{}, bool) {
 // route 匹配使用的 pattern
 type pattern struct {
 	Pattern
-	name           string // 全空表示 "*"
-	prefix, suffix string // 前后缀
-	idx            uint8  // 在 urls 中的下标
+	name   string // 空值匹配不提取
+	prefix string // 前缀
 }
 
 func newPattern(s string) *pattern {
-	pos := strings.Index(s, ":")
-	if pos != -1 {
-		p := &pattern{}
-		p.prefix = s[:pos]
-		p.name = s[pos+1:]
-		p.Pattern = NewPattern("string")
-		return p
-	}
 
-	pos = strings.Index(s, "*")
-	if pos != -1 {
-		p := &pattern{}
-		p.prefix = s[:pos]
-		p.suffix = s[pos+1:]
-		p.Pattern = NewPattern("*")
-		return p
-	}
-
-	pos = strings.Index(s, "<")
-	if pos != -1 {
-		end := strings.Index(s, ">")
-		a := strings.Split(s[pos+1:end], " ")
-		if len(a) == 0 {
-			panic(`rivet: invalide pattern ` + s)
-		}
-		p := &pattern{}
-		p.prefix = s[:pos]
-		p.suffix = s[end+1:]
-		p.name = a[0]
+	a := strings.Split(s, ":")
+	if len(a) == 1 {
+		a = strings.Split(s, "*")
 		if len(a) == 1 {
-			p.Pattern = NewPattern("string")
-		} else {
-			p.Pattern = NewPattern(a[1], a[1:]...)
+			return nil
 		}
-		return p
 	}
-	return nil
+	if len(a) > 2 {
+		panic(`rivet: invalide pattern ` + s)
+	}
+
+	p := &pattern{}
+	p.prefix = a[0]
+
+	a = strings.Split(a[1], " ")
+
+	p.name = a[0]
+	if len(a) == 1 {
+		p.Pattern = NewPattern("string")
+	} else {
+		p.Pattern = NewPattern(a[1], a[1:]...)
+	}
+
+	return p
 }
 
 func (p *pattern) Match(s string) (interface{}, bool) {
 
-	n := len(p.prefix)
-	if n != 0 {
-		if len(s) < n || p.prefix != s[0:n] {
-			return nil, false
-		}
-		s = s[n:]
+	if p.prefix != s[0:len(p.prefix)] {
+		return nil, false
 	}
-	n = len(p.suffix)
-	if n != 0 {
-		n = len(s) - n
-		if n < 0 || p.suffix != s[n:] {
-			return nil, false
-		}
-		s = s[0:n]
-	}
-	return p.Pattern.Match(s)
+
+	return p.Pattern.Match(s[len(p.prefix):])
 }

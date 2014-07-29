@@ -32,13 +32,14 @@ func T(i interface{}) uint {
 	return *(*uint)(unsafe.Pointer(&i))
 }
 
-func rtype(t reflect.Type) uint {
-	e := *(*emptyInterface)(unsafe.Pointer(&t))
+// 专门从 reflect.Type 取原类型标识值.
+func rTypeT(t reflect.Type) uint {
+	e := *(*reflectTypeInterface)(unsafe.Pointer(&t))
 	return e.addrs
 }
 
-type emptyInterface struct {
-	typ   *uint
+type reflectTypeInterface struct {
+	rtype *uint
 	addrs uint
 }
 
@@ -246,7 +247,7 @@ func (c *Rivet) Invoke(params Params, handlers ...Handler) {
 func (c *Rivet) call(t reflect.Type, h interface{}) {
 	in := make([]reflect.Value, t.NumIn())
 	for i := 0; i < t.NumIn(); i++ {
-		id := rtype(t.In(i))
+		id := rTypeT(t.In(i))
 		val := c.Get(id)
 		in[i] = reflect.ValueOf(val)
 	}

@@ -22,7 +22,7 @@ type Pattern interface {
 }
 
 /**
-Riveter 用于生成 Context 实例, 需要用户实现.
+Riveter 用于生成 Context 实例.
 */
 type Riveter interface {
 	// Context 生成 Context 实例
@@ -57,16 +57,19 @@ Route 负责匹配 urls, 并支持使用不同的 Context 处理 http Request.
 type Route interface {
 	/**
 	Rivet 绑定 Riveter 实例.
+	此方法使得 Route 可以使用不同的 Context 实现.
 	*/
 	Rivet(rivet Riveter)
 	/**
-	Match 匹配 strings.Split(req.URL.Path, "/") 分割后的 urls.
-	如果匹配成功, 通过 rivet.Context 生成 Context 实例并处理 Handler, 返回 true, 否则返回 false.
-	如果没有绑定 Rivet 对象, 用 source.Context(nil,nil) 获取 Context 实例.
-	如果绑定了 Rivet 对象, source.Context(rivet.Source()) 获得.
-	如果 source 为 nil, 为测试模式, 不处理 Handler.
+	Handlers 设置 Route Handler,
+	如果 Router 生成 Route 的时候没有设置, 或者需要重新设置的话.
 	*/
-	Match(urls []string, context Context) bool
+	Handlers(handlers ...Handler)
+	/**
+	Apply 以 params 和设置的 handlers 为参数调用 context.Invoke,
+	如果绑定了 Riveter, 那么生成新的 context.
+	*/
+	Apply(params Params, context Context)
 }
 
 /**
@@ -79,13 +82,11 @@ Router 实例在 http.Request 时会通过匹配到的 Route 调用 Context.Invo
 			如果是 HEAD 方法, 匹配失败, 尝试匹配 GET 路由.
 		Any 路由     未指定 Method
 	第二级
-		字面匹配
+		定值匹配
 		模式路由
 */
 type Router interface {
 	http.Handler
-	// Router 也实现了 Route 接口
-	Route
 	/**
 	Add 为 HTTP method request 添加路由
 	参数:
