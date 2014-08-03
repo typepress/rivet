@@ -2,7 +2,6 @@ package rivet
 
 import (
 	"net/http"
-	"strings"
 )
 
 type routes interface {
@@ -13,8 +12,7 @@ type routes interface {
 type router struct {
 	rivet     Riveter
 	notFounds *base
-	fix       fixRoutes
-	trees     map[string]*tree
+	trees     map[string]*Trie
 }
 
 /**
@@ -28,9 +26,8 @@ func NewRouter(rivet Riveter) Router {
 	}
 
 	return &router{
-		fix:   fixRoutes{},
 		rivet: rivet,
-		trees: map[string]*tree{},
+		trees: map[string]*Trie{},
 	}
 }
 
@@ -79,45 +76,52 @@ func (r *router) NotFound(h ...Handler) Route {
 	}
 	return route
 }
+
 func (r *router) ServeHTTP(res http.ResponseWriter, req *http.Request) {
-	r.For(req.Method, res, req)
-}
 
-func (r *router) For(method string, res http.ResponseWriter, req *http.Request) {
+	method := req.Method
+	urlPath := req.URL.Path
 
-	context := r.rivet.Context(res, req)
-	if r.fix.Match(method, req.URL.Path, context) {
-		return
+	params, route := r.trees[method].Match(urlPath)
+
+	if route == nil && method == "HEAD" {
+		params, route = r.trees["GET"].Match(urlPath)
 	}
 
-	get := method == "HEAD"
-
-	var (
-		params Params
-		route  *tree
-		root   *tree
-	)
-	root = r.trees[method]
-	params, route = root.Match(req.URL.Path)
-
-	if route == nil && get {
-		params, route = r.trees["GET"].Match(req.URL.Path)
-	}
-	if route == nil && root != r.trees["*"] {
-		params, route = r.trees["*"].Match(req.URL.Path)
+	if route == nil && method != "*" {
+		params, route = r.trees["*"].Match(urlPath)
 	}
 
 	if route != nil {
-		route.Apply(params, context)
+		route.Apply(params, r.rivet.Context(res, req))
 		return
 	}
 
 	if r.notFounds != nil {
-		r.notFounds.Apply(params, context)
+		r.notFounds.Apply(nil, r.rivet.Context(res, req))
 		return
 	}
 
 	http.NotFound(res, req)
+}
+
+func (r *router) Match(method, urlPath string) (Params, Route) {
+
+	params, route := r.trees[method].Match(urlPath)
+
+	if route == nil && method == "HEAD" {
+		params, route = r.trees["GET"].Match(urlPath)
+	}
+
+	if route == nil && method != "*" {
+		params, route = r.trees["*"].Match(urlPath)
+	}
+
+	if route == nil {
+		return nil, nil
+	}
+
+	return params, route
 }
 
 func (r *router) add(method string, pattern string, handlers []Handler) Route {
@@ -130,16 +134,12 @@ func (r *router) add(method string, pattern string, handlers []Handler) Route {
 		panic(`rivet: invalide pattern`)
 	}
 
-	if strings.IndexAny(pattern, ":*") == -1 {
-		route = r.fix.Add(method, pattern)
-	} else {
-		t := r.trees[method]
-		if t == nil {
-			t = newTree()
-			r.trees[method] = t
-		}
-		route = t.Add(method, pattern)
+	t := r.trees[method]
+	if t == nil {
+		t = NewRoot()
+		r.trees[method] = t
 	}
+	route = t.Add(pattern)
 
 	route.Handlers(handlers...)
 	return route

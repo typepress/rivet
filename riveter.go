@@ -3,70 +3,86 @@ package rivet
 import (
 	"net/http"
 	"reflect"
-	"sort"
-	"unsafe"
 )
 
 /**
 New 返回一个 *Rivet, 事实上值为 nil.
 */
 func New() *Rivet {
-	return (*Rivet)(nil)
+	return nil
+}
+
+var (
+	id_httpRequest        = TypeIdOf((*http.Request)(nil))
+	id_HttpResponseWriter = TypeIdOf((*ResponseWriter)(nil))
+	id_ResponseWriter     = TypeIdOf((*http.ResponseWriter)(nil))
+	id_Context            = TypeIdOf((*Context)(nil))
+	id_Rivet              = TypeIdOf((*Rivet)(nil))
+	id_Params             = TypeIdOf(Params{})
+)
+
+/**
+TypeIdOf 返回 v 的类型签名地址, 转换为 uint 类型.
+此方法使用 reflect 获取 rType 的类型地址.
+
+示例:
+获取接口对象 v 的接口类型签名:
+
+	// 获取 fmt.Stringer 接口类型签名
+	var v *fmt.Stringer
+	_ = TypeIdOf(v)
+	// 或者
+	_ = TypeIdOf((*fmt.Stringer)(nil))
+
+获取 reflect.Type 的类型签名:
+
+	var v AnyType
+	_ = TypeIdOf(reflect.TypeOf(v))
+这样获取的是 reflect.Type 的类型签名, 而不是 AnyType 的.
+
+非接口类型:
+
+	var s string
+	_ = TypeIdOf(s)
+
+*/
+func TypeIdOf(v interface{}) uint {
+	t, ok := v.(reflect.Type)
+	if !ok {
+		t = reflect.TypeOf(v)
+	}
+	if t.Kind() == reflect.Ptr && t.Elem().Kind() == reflect.Interface {
+		t = t.Elem()
+	}
+
+	return uint(reflect.ValueOf(t).Pointer())
 }
 
 /**
 Rivet 符合 Rivet, Context 接口.
 */
 type Rivet struct {
-	arg []*tv
-	res ResponseWriter
-	req *http.Request
-	mp  bool // 是否已经 Map(params)
-}
-
-/**
-T 返回 i 所属类型的 uint 标识值.
-此方法跟 Go 内部实现有关, 需要同步跟进.
-*/
-func T(i interface{}) uint {
-	return *(*uint)(unsafe.Pointer(&i))
-}
-
-// 专门从 reflect.Type 取原类型标识值.
-func rTypeT(t reflect.Type) uint {
-	e := *(*reflectTypeInterface)(unsafe.Pointer(&t))
-	return e.addrs
-}
-
-type reflectTypeInterface struct {
-	rtype *uint
-	addrs uint
-}
-
-type tv struct {
-	t uint        // type
-	v interface{} // val
+	arg  map[uint]interface{} //[]*tv
+	res  ResponseWriter
+	req  *http.Request
+	mapv bool // 是否已经 Map 相关参数
 }
 
 /**
 Context 是 Rivet 的自构造方法.
-如果参数 res 不符合 rivet.ResponseWriter 接口, 调用 NewResponseWriter(res) 生成一个.
+如果参数 res 不符合 rivet.ResponseWriter 接口,
+调用 NewResponseWriterFakeFlusher(res) 生成一个.
 */
 func (*Rivet) Context(res http.ResponseWriter, req *http.Request) Context {
-
 	rw, ok := res.(ResponseWriter)
 	if !ok {
-		rw = NewResponseWriter(res)
+		rw = NewResponseWriterFakeFlusher(res)
 	}
-	c := &Rivet{
-		res: rw,
-		req: req,
-		arg: make([]*tv, 0, 20),
-	}
-	c.Map(res)
-	c.Map(rw)
-	c.Map(req)
-	c.Map(c)
+
+	c := new(Rivet)
+	c.res = rw
+	c.req = req
+	c.arg = map[uint]interface{}{} //make([]*tv, 0, 20) //
 	return c
 }
 
@@ -83,26 +99,21 @@ func (r *Rivet) Get(t uint) interface{} {
 	if n == 0 {
 		return nil
 	}
-	pos := sort.Search(n, func(i int) bool {
-		return r.arg[i].t >= t
-	})
-	if pos == n || r.arg[pos].t != t {
-		return nil
-	}
-	return r.arg[pos].v
+	return r.arg[t]
 }
 
 /**
 Map 把变量值 v 关联到 context. 内部调用了 r.MapTo(v, T(v)).
-Rivet 自动 Map 的 context 相关变量值类型有:
+Rivet 自动 Map 的类型有:
 	*Rivet
+	Context
 	Params
 	ResponseWriter
 	http.ResponseWriter
 	*http.Request
 */
 func (r *Rivet) Map(v interface{}) {
-	r.MapTo(v, T(v))
+	r.MapTo(v, TypeIdOf(v))
 }
 
 /**
@@ -110,37 +121,12 @@ MapTo 以类型值 t 把变量值 v 关联到 context.
 相同类型的值只会保留一份.
 */
 func (r *Rivet) MapTo(v interface{}, t uint) {
-	n := len(r.arg)
-	a := &tv{t: t, v: v}
-
-	if n == 0 {
-		r.arg = append(r.arg, a)
-		return
-	}
-
-	pos := sort.Search(n, func(i int) bool {
-		return r.arg[i].t > t
-	})
-
-	if pos == n {
-		r.arg = append(r.arg, a)
-		return
-	}
-
-	if r.arg[pos].t == t {
-		r.arg[pos] = a
-		return
-	}
-	r.arg = append(r.arg, nil)
-	for i := n; i > pos; i-- {
-		r.arg[i] = r.arg[i-1]
-	}
-	r.arg[pos] = a
+	r.arg[t] = v
 }
 
 /**
 Invoke 遍历所有的 handlers.
-如果 handlers 是函数将被调用, 否则被 Map 关联到 context.
+如果 handlers 是函数将被调用, 否则被 Map 到 context.
 如果 ResponseWriter.Written() 为 true, 终止遍历.
 下列定义的 handler 被快速匹配:
 
@@ -168,13 +154,11 @@ Invoke 最后会执行 ResponseWriter.Flush().
 	NewResponseWriter 产生的实例未实现 http.Flusher.
 	Invoke 对于没有进行 Map 的类型, 用 nil 替代.
 	reflect.Vlaue.Call 可能产生 panic, 需要使用者处理.
+
 */
 func (c *Rivet) Invoke(params Params, handlers ...Handler) {
-	if !c.mp {
-		c.mp = true
-		c.Map(params)
-	}
-	var t reflect.Type
+	var v reflect.Value
+
 	for i, h := range handlers {
 
 		if c.res.Written() {
@@ -182,9 +166,32 @@ func (c *Rivet) Invoke(params Params, handlers ...Handler) {
 		}
 
 		switch fn := h.(type) {
+		default: // 反射调用或者 Map 对象
+			if !c.mapv {
+				println("!map")
+				c.mapv = true
+				c.MapTo(params, id_Params)
+				c.MapTo(c, id_Rivet)
+				c.MapTo(c, id_Context)
+				c.MapTo(c.req, id_httpRequest)
+				c.MapTo(c.res, id_HttpResponseWriter)
+				c.MapTo(c.res, id_ResponseWriter)
+			}
+			v = reflect.ValueOf(h)
+			if v.Kind() != reflect.Func {
+				c.Map(h)
+				continue
+			}
+			c.call(v)
+
+		case func(*Rivet, Params, ...Handler): // 交接控制权
+			fn(c, params, handlers[i+1:]...)
+			return
+
 		case func():
 			fn()
 			continue
+
 		case func(ResponseWriter):
 			fn(c.res)
 			continue
@@ -194,15 +201,16 @@ func (c *Rivet) Invoke(params Params, handlers ...Handler) {
 		case func(*http.Request):
 			fn(c.req)
 			continue
-		case func(Params):
-			fn(params)
-			continue
 
 		case func(ResponseWriter, *http.Request):
 			fn(c.res, c.req)
 			continue
 		case func(http.ResponseWriter, *http.Request):
 			fn(c.res, c.req)
+			continue
+
+		case func(Params):
+			fn(params)
 			continue
 
 		case func(ResponseWriter, *http.Request, Params):
@@ -215,6 +223,7 @@ func (c *Rivet) Invoke(params Params, handlers ...Handler) {
 		case func(ResponseWriter, Params):
 			fn(c.res, params)
 			continue
+
 		case func(http.ResponseWriter, Params):
 			fn(c.res, params)
 			continue
@@ -228,29 +237,26 @@ func (c *Rivet) Invoke(params Params, handlers ...Handler) {
 		case func(*Rivet, Params):
 			fn(c, params)
 			continue
-		case func(*Rivet, Params, ...Handler): // 交接控制权
-			fn(c, params, handlers[i+1:]...)
-			return
-		default:
-			t = reflect.TypeOf(h)
-			if t.Kind() != reflect.Func {
-				c.Map(h)
-				continue
-			}
 		}
-		c.call(t, h)
 	}
 
 	c.res.Flush()
 }
 
-func (c *Rivet) call(t reflect.Type, h interface{}) {
+func (c *Rivet) call(fn reflect.Value) {
+	t := fn.Type()
+
 	in := make([]reflect.Value, t.NumIn())
 	for i := 0; i < t.NumIn(); i++ {
-		id := rTypeT(t.In(i))
+		id := TypeIdOf(t.In(i))
 		val := c.Get(id)
 		in[i] = reflect.ValueOf(val)
 	}
 
-	reflect.ValueOf(h).Call(in)
+	if t.IsVariadic() {
+		fn.CallSlice(in)
+	} else {
+		fn.Call(in)
+	}
+
 }

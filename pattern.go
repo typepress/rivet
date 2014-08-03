@@ -6,16 +6,16 @@ import (
 )
 
 /**
-PatternFactory 用于注册 Pattern 实例工厂, 内建的 class 有
-	*       Unicode characters, 允许空值, 等同于: < *>
+PatternClass 用于注册 Pattern 实例工厂, 内建的 class 有
+	*       Unicode characters, 允许空值, 等同于: ": *"
 	string  非空 Unicode characters, 缺省值, 如果没有参数可省略.
 	alpha   [a-zA-Z]+
 	alnum   [a-zA-Z]+[0-9]+
 	hex     [a-z0-9]+
 	uint    uint 可以接收 strconv.ParseUint 的 bitSize 参数
-注意: <name string 0> 中的 0 无法产生作用, 应该用 <name *> 替代.
+注意: ":name string 0" 中的 0 无法产生作用, 应该用 ":name *" 替代.
 */
-var PatternFactory = map[string]func(class string, args ...string) Pattern{
+var PatternClass = map[string]func(class string, args ...string) Pattern{
 	"*":      patternBuiltin,
 	"string": patternBuiltin,
 	"alpha":  patternBuiltin,
@@ -25,11 +25,11 @@ var PatternFactory = map[string]func(class string, args ...string) Pattern{
 }
 
 /**
-NewPattern 通过访问 PatternFactory 生成一个 Pattern
+NewPattern 通过访问 PatternClass 生成一个 Pattern
 如果 class 不存在或者生成 nil 将抛出 panic.
 */
 func NewPattern(class string, args ...string) Pattern {
-	fn := PatternFactory[class]
+	fn := PatternClass[class]
 	if fn == nil {
 		panic("rivet: not exists Pattern class " + class)
 	}
@@ -81,6 +81,7 @@ func (n patternString) Match(s string) (interface{}, bool) {
 }
 
 func (n patternAlpha) Match(s string) (interface{}, bool) {
+
 	if n != 0 && int(n) < len(s) {
 		return nil, false
 	}
@@ -146,31 +147,24 @@ func (n patternHex) Match(s string) (interface{}, bool) {
 // route 匹配使用的 pattern
 type pattern struct {
 	Pattern
-	name   string // 空值匹配不提取
-	prefix string // 前缀
+	name string // 空值匹配不提取
 }
 
-func newPattern(s string) *pattern {
-
-	a := strings.Split(s, ":")
-	if len(a) == 1 {
-		a = strings.Split(s, "*")
-		if len(a) == 1 {
-			return nil
-		}
-	}
-	if len(a) > 2 {
-		panic(`rivet: invalide pattern ` + s)
+func newPattern(text string) *pattern {
+	if text[0] != ':' && text[0] != '*' {
+		panic("rivet: internal error form newPattern : " + text)
 	}
 
-	p := &pattern{}
-	p.prefix = a[0]
+	a := strings.Split(text[1:], " ")
 
-	a = strings.Split(a[1], " ")
-
+	p := new(pattern)
 	p.name = a[0]
 	if len(a) == 1 {
-		p.Pattern = NewPattern("string")
+		if p.name == "" {
+			p.Pattern = NewPattern("*")
+		} else {
+			p.Pattern = NewPattern("string")
+		}
 	} else {
 		p.Pattern = NewPattern(a[1], a[1:]...)
 	}
@@ -178,11 +172,12 @@ func newPattern(s string) *pattern {
 	return p
 }
 
-func (p *pattern) Match(s string) (interface{}, bool) {
-
-	if p.prefix != s[0:len(p.prefix)] {
-		return nil, false
+func (p *pattern) Match(text string, params Params) bool {
+	var v interface{}
+	var ok bool
+	v, ok = p.Pattern.Match(text)
+	if ok && p.name != "" {
+		params[p.name] = v
 	}
-
-	return p.Pattern.Match(s[len(p.prefix):])
+	return ok
 }

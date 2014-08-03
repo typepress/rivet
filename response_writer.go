@@ -14,33 +14,38 @@ type ResponseWriter interface {
 	Status() int
 	// Size 返回调用 Write 写入的字节数, 初始值为 0
 	Size() int
-	// Written 返回 Status()!=0 && Size()!=0
+	// Written 返回 Status()!=0 && Size()!=0 的结果
 	Written() bool
 }
 
 /**
-NewResponseWriter 返回不支持 http.Flusher 的 ResponseWriter 实例.
+NewResponseWriterFakeFlusher 返回伪 http.Flusher 的 ResponseWriter 实例.
 虽然含有 Flush() 方法, 但未实现 http.Flusher, 以后也不会实现.
-如果您需要 http.Flusher 请不要使用此函数.
+这样设计提供了无 Flusher 的 ResponseWriter 并满足内置的 Rivet 接口要求.
+如果您需要真的 http.Flusher 请不要使用此函数.
 */
-func NewResponseWriter(rw http.ResponseWriter) ResponseWriter {
-	return &responseWriter{rw, 0, 0}
+func NewResponseWriterFakeFlusher(rw http.ResponseWriter) ResponseWriter {
+	return &ResponseWriteFakeFlusher{rw, 0, 0}
 }
 
-type responseWriter struct {
+/**
+ResponseWriteFakeFlusher 实现了 http.ResponseWriter 接口和伪 http.Flusher 接口.
+注意 Flush() 方法是个伪接口.
+*/
+type ResponseWriteFakeFlusher struct {
 	http.ResponseWriter
 	status int
 	size   int
 }
 
-func (rw *responseWriter) Flush() {}
+func (rw *ResponseWriteFakeFlusher) Flush() {}
 
-func (rw *responseWriter) WriteHeader(s int) {
+func (rw *ResponseWriteFakeFlusher) WriteHeader(s int) {
 	rw.ResponseWriter.WriteHeader(s)
 	rw.status = s
 }
 
-func (rw *responseWriter) Write(b []byte) (int, error) {
+func (rw *ResponseWriteFakeFlusher) Write(b []byte) (int, error) {
 	if !rw.Written() {
 		rw.WriteHeader(http.StatusOK)
 	}
@@ -49,14 +54,14 @@ func (rw *responseWriter) Write(b []byte) (int, error) {
 	return size, err
 }
 
-func (rw *responseWriter) Status() int {
+func (rw *ResponseWriteFakeFlusher) Status() int {
 	return rw.status
 }
 
-func (rw *responseWriter) Size() int {
+func (rw *ResponseWriteFakeFlusher) Size() int {
 	return rw.size
 }
 
-func (rw *responseWriter) Written() bool {
+func (rw *ResponseWriteFakeFlusher) Written() bool {
 	return rw.status != 0
 }

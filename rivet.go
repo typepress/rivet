@@ -5,15 +5,15 @@ import (
 )
 
 /**
-Pattern 负责路由中的模式匹配.
+Pattern 用于路由中的模式匹配接口.
 */
 type Pattern interface {
 	/**
 	Match 匹配 URL 中的某一段.
 	参数:
-		路由实例: "/blog/cat<id num 6>", pattern 为 "<id num 6>"
+		路由实例: "/blog/cat:id num 6", pattern 为 ":id num 6"
 		URL 实例: "/blog/cat3282"
-			传递给 Match 的参数是 "3282".
+			传递给 Match 的参数是字符串 "3282".
 	返回值:
 		匹配处理后的数据
 		bool 值表示是否匹配成功
@@ -52,7 +52,7 @@ type Context interface {
 }
 
 /**
-Route 负责匹配 urls, 并支持使用不同的 Context 处理 http Request.
+Route 负责通过 Context 调用 handlers, 处理 http Request.
 */
 type Route interface {
 	/**
@@ -73,17 +73,9 @@ type Route interface {
 }
 
 /**
-Router 实例在 http.Request 时会通过匹配到的 Route 调用 Context.Invoke.
+Router 通过匹配到的 Route 调用 Context.Invoke.
 事实上为了能正常调用 Route.Match 方法, 生成 Router 的方法需要 Rivet 实例参数.
-特别的, 如果不设定 NotFound Handler, 直接调用 http.NotFound, 不调用 Context.Invoke.
-多级路由匹配次序:
-	第一级
-		Method 路由  指定 http.Request.Method
-			如果是 HEAD 方法, 匹配失败, 尝试匹配 GET 路由.
-		Any 路由     未指定 Method
-	第二级
-		定值匹配
-		模式路由
+如果不设定 NotFound Handler, 直接调用 http.NotFound, 不调用 Context.Invoke.
 */
 type Router interface {
 	http.Handler
@@ -112,4 +104,7 @@ type Router interface {
 	Options(pattern string, h ...Handler) Route
 	// NotFound 设置匹配失败路由, 此路由只有一个.
 	NotFound(...Handler) Route
+
+	// Match 以 method, urlPath 匹配路由. 失败返回  nil, nil.
+	Match(method, urlPath string) (Params, Route)
 }

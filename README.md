@@ -23,7 +23,7 @@ rivet
    cat
     为参数名, 省略表示只验证不提取参数, 形如 ": string"
         string
-            为类型名, 可以注册自定义 class 到 PatternFactory 变量.
+            为类型名, 可以注册自定义 class 到 PatternClass 变量.
         6
             为参数, 所有内建类型可以设置一个限制长度参数, 最大值 255. 例如
             ":name string 6"
