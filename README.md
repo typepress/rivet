@@ -100,9 +100,17 @@ func main() {
 }
 ```
 
+Acknowledgements
+================
+
+Inspiration from Julien Schmidt's [httprouter](https://github.com/julienschmidt/httprouter), about Trie struct.
+
+Trie 算法和结构灵感来自 Julien Schmidt's [httprouter](https://github.com/julienschmidt/httprouter).
+
 
 LICENSE
 =======
+Copyright (c) 2013 Julien Schmidt. All rights reserved.
 Copyright 2014 The TypePress Authors. All rights reserved.
 Use of this source code is governed by a BSD-style
 license that can be found in the LICENSE file.
