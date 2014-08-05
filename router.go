@@ -136,7 +136,7 @@ func (r *router) add(method string, pattern string, handlers []Handler) Route {
 
 	t := r.trees[method]
 	if t == nil {
-		t = NewRoot()
+		t = NewRootRoute()
 		r.trees[method] = t
 	}
 	route = t.Add(pattern)

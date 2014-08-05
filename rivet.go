@@ -1,6 +1,7 @@
 package rivet
 
 import (
+	"fmt"
 	"net/http"
 )
 
@@ -32,12 +33,33 @@ type Riveter interface {
 // Params 以 key/value 存储 URL 匹配到的参数
 type Params map[string]interface{}
 
+// Get 返回 key 所对应值的字符串形式
+func (p Params) Get(key string) string {
+	i := p[key]
+	if i == nil {
+		return ""
+	}
+	return fmt.Sprint(i)
+}
+
 /**
 Context 是实际的 http Request 处理对象.
 */
 type Context interface {
-	// Source 返回产生 Context 的参数
+	// Source 返回产生 Context 的 http.ResponseWriter 和 *http.Request
 	Source() (http.ResponseWriter, *http.Request)
+
+	// Request 返回产生 Context 的 *http.Request
+	Request() *http.Request
+
+	// Response 返回产生 Context 的 http.ResponseWriter
+	Response() http.ResponseWriter
+
+	// WriteString 等同于调用 Response().Write([]byte(data))
+	WriteString(data string) (int, error)
+
+	//	PathParams 返回路由匹配时从 URL.Path 中提取的参数
+	PathParams() Params
 	/**
 	Invoke 负责调用 http.Request Handler
 	参数:
@@ -65,6 +87,14 @@ type Injector interface {
 
 	// 以类型标识 t 为 key, 获取关联到 context 的变量.
 	Get(t uint) interface{}
+
+	/**
+	未确定是否增加此方法
+	Call 调用 function, 参数依据类型标识 ids 从 context 中获得.
+	function 必须是函数, ids 的顺序和 function 的参数对应.
+	真正的参数事先已关联到 context 中. 此方法可能引发 panic.
+	*/
+	// Call(function interface{}, ids ...uint)
 }
 
 /**

@@ -66,10 +66,11 @@ func TypeIdOf(v interface{}) uint {
 Rivet 符合 Rivet, Context 接口.
 */
 type Rivet struct {
-	val  map[uint]interface{}
-	res  ResponseWriter
-	req  *http.Request
-	mapv bool // 是否已经 Map 相关参数
+	val    map[uint]interface{}
+	res    ResponseWriter
+	req    *http.Request
+	params Params
+	mapv   bool // 是否已经 Map 相关参数
 }
 
 /**
@@ -98,6 +99,25 @@ func (c *Rivet) Source() (http.ResponseWriter, *http.Request) {
 	return c.res, c.req
 }
 
+func (c *Rivet) Request() *http.Request {
+	return c.req
+}
+
+func (c *Rivet) Response() http.ResponseWriter {
+	return c.res
+}
+
+func (c *Rivet) WriteString(data string) (int, error) {
+	return c.res.Write([]byte(data))
+}
+
+func (c *Rivet) PathParams() Params {
+	if c.params == nil {
+		c.params = Params{}
+	}
+	return c.params
+}
+
 /**
 Get 根据参数 t 表示的类型标识值, 从 context 中查找关联变量值.
 如果未找到, 返回 nil.
@@ -116,7 +136,7 @@ func (r *Rivet) Get(t uint) interface{} {
 /**
 Map 等同 MapTo(v, TypeIdOf(v)). 以 v 的类型标识为 key.
 Rivet 自动 Map 的变量类型有:
-	*Rivet
+	Injector
 	Context
 	Params
 	ResponseWriter
@@ -141,6 +161,9 @@ func (r *Rivet) MapTo(v interface{}, t uint) {
 	case id_HttpResponseWriter:
 		t = id_ResponseWriter
 	}
+	if r.val == nil {
+		r.val = map[uint]interface{}{}
+	}
 	r.val[t] = v
 }
 
@@ -151,25 +174,23 @@ Invoke 遍历所有的 handler 函数. handler 函数返回值被忽略.
 下列定义的 handler 函数被快速匹配:
 
 	func()
+	func(Context)
+	func(Injector)
+	func(*http.Request)
 	func(ResponseWriter)
 	func(http.ResponseWriter)
-	func(*http.Request)
-	func(Params)
 	func(ResponseWriter, *http.Request)
 	func(http.ResponseWriter, *http.Request)
-	func(ResponseWriter, *http.Request, Params)
-	func(http.ResponseWriter, *http.Request, Params)
-	func(ResponseWriter, Params)
-	func(http.ResponseWriter, Params)
-	func(*http.Request, Params)
-	func(Injector)
-	func(Injector, Params)
-	func(Context)
-	func(Context, Params)
-	func(Injector, Params, ...Handler)
-	func(Context, Params, ...Handler)
+	func(Params)
+	func(Params, *http.Request)
+	func(Params, ResponseWriter)
+	func(Params, http.ResponseWriter)
+	func(Params, ResponseWriter, *http.Request)
+	func(Params, http.ResponseWriter, *http.Request)
+	func(Injector, ...Handler)
+	func(Context, ...Handler)
 
-最后两种传递 Handler 的函数会接管 Invoke 控制权, Invoke 直接返回.
+最后两种含 Handler 参数的函数会接管 Invoke 控制权, Invoke 直接返回.
 其他 handler 函数通过 reflect.Vlaue.Call 被调用.
 Invoke 最后会执行 ResponseWriter.Flush().
 
@@ -180,6 +201,10 @@ Invoke 最后会执行 ResponseWriter.Flush().
 func (c *Rivet) Invoke(params Params, handler ...Handler) {
 	var v reflect.Value
 
+	if c.params == nil {
+		c.params = params
+	}
+
 	for i, h := range handler {
 
 		if c.res.Written() {
@@ -189,9 +214,6 @@ func (c *Rivet) Invoke(params Params, handler ...Handler) {
 		switch fn := h.(type) {
 		default: // 反射调用或者 Map 对象
 
-			if c.val == nil {
-				c.val = map[uint]interface{}{}
-			}
 			if !c.mapv {
 				c.mapv = true
 				c.MapTo(params, id_Params)
@@ -206,91 +228,87 @@ func (c *Rivet) Invoke(params Params, handler ...Handler) {
 				continue
 			}
 			c.call(v)
-
-		case func(Injector):
-			if c.val == nil {
-				c.val = map[uint]interface{}{}
-			}
+		case func(Context):
 			fn(c)
-			continue
-		case func(Injector, Params):
-			if c.val == nil {
-				c.val = map[uint]interface{}{}
-			}
-			fn(c, params)
-			continue
+		case func(Injector):
+			fn(c)
 
-		case func(Injector, Params, ...Handler): // 交接控制权
-			if c.val == nil {
-				c.val = map[uint]interface{}{}
-			}
-			fn(c, params, handler[i+1:]...)
+		case func(Injector, ...Handler): // 交接控制权
+			fn(c, handler[i+1:]...)
 			return
-		case func(Context, Params, ...Handler): // 交接控制权
-			fn(c, params, handler[i+1:]...)
+		case func(Context, ...Handler): // 交接控制权
+			fn(c, handler[i+1:]...)
 			return
 
 		case func():
 			fn()
-			continue
-
 		case func(ResponseWriter):
 			fn(c.res)
-			continue
 		case func(http.ResponseWriter):
 			fn(c.res)
-			continue
 		case func(*http.Request):
 			fn(c.req)
-			continue
 
 		case func(ResponseWriter, *http.Request):
 			fn(c.res, c.req)
-			continue
 		case func(http.ResponseWriter, *http.Request):
 			fn(c.res, c.req)
-			continue
 
 		case func(Params):
 			fn(params)
-			continue
 
-		case func(ResponseWriter, *http.Request, Params):
-			fn(c.res, c.req, params)
-			continue
-		case func(http.ResponseWriter, *http.Request, Params):
-			fn(c.res, c.req, params)
-			continue
+		case func(Params, ResponseWriter, *http.Request):
+			fn(params, c.res, c.req)
+		case func(Params, http.ResponseWriter, *http.Request):
+			fn(params, c.res, c.req)
 
-		case func(ResponseWriter, Params):
-			fn(c.res, params)
-			continue
+		case func(Params, ResponseWriter):
+			fn(params, c.res)
 
-		case func(http.ResponseWriter, Params):
-			fn(c.res, params)
-			continue
+		case func(Params, http.ResponseWriter):
+			fn(params, c.res)
 
-		case func(*http.Request, Params):
-			fn(c.req, params)
-			continue
-
-		case func(Context):
-			fn(c)
-			continue
-		case func(Context, Params):
-			fn(c, params)
-			continue
+		case func(Params, *http.Request):
+			fn(params, c.req)
 		}
 	}
 
 	c.res.Flush()
 }
 
+/**
+// 未确定是否增加此方法
+func (c *Rivet) Call(function interface{}, args ...uint) {
+	fn := reflect.ValueOf(function)
+	if fn.Kind() != reflect.Func {
+		panic("rivet: function are only allowed")
+	}
+	t := fn.Type()
+
+	in := make([]reflect.Value, t.NumIn())
+
+	if len(args) < len(in) {
+		panic("rivet: arguments was not enough")
+	}
+
+	for i := 0; i < len(in); i++ {
+		val := c.Get(args[i])
+		in[i] = reflect.ValueOf(val)
+	}
+
+	if t.IsVariadic() {
+		fn.CallSlice(in)
+	} else {
+		fn.Call(in)
+	}
+}
+*/
+
 func (c *Rivet) call(fn reflect.Value) {
 	t := fn.Type()
 
 	in := make([]reflect.Value, t.NumIn())
-	for i := 0; i < t.NumIn(); i++ {
+	for i := 0; i < len(in); i++ {
 		id := TypeIdOf(t.In(i))
 		val := c.Get(id)
 		in[i] = reflect.ValueOf(val)

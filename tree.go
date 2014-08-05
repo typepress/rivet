@@ -6,7 +6,7 @@ import (
 
 /**
 前缀树
-NewRoot 已经已经设置好根节点, 因此节点总是已经设置好.
+NewRootRoute 已经已经设置好根节点, 因此节点总是已经设置好.
 三种节点:
 	定值节点     pattern==nil && indices!=nil
 	模式节点     pattern!=nil
@@ -30,9 +30,9 @@ type Trie struct {
 }
 
 /**
-NewRoot 返回新的路由根节点, 已经设置路径为 "/".
+NewRootRoute 返回新的路由根节点, 已经设置路径为 "/".
 */
-func NewRoot() *Trie {
+func NewRootRoute() *Trie {
 	return &Trie{path: "/", indices: []byte{}}
 }
 
@@ -40,11 +40,32 @@ func NewRoot() *Trie {
 匹配 path, 返回匹配到的节点, 和提取到的参数.
 */
 func (t *Trie) Match(path string) (Params, *Trie) {
+	params, leaf := t.match(path)
+	if leaf == nil {
+		return nil, nil
+	}
+
+	if leaf.base == nil && len(leaf.indices) != 0 &&
+		leaf.indices[0] == 0 {
+		leaf = leaf.nodes[0]
+		if leaf.path == "" {
+			leaf = leaf.nodes[0]
+		}
+		if leaf.path != "**" {
+			return nil, nil
+		}
+	}
+
+	return params, leaf
+}
+func (t *Trie) match(path string) (Params, *Trie) {
 	var (
-		i      int
-		c, idx byte
-		child  *Trie
-		params Params
+		i, j     int
+		c, idx   byte
+		child    *Trie
+		catchAll *Trie
+		all      string
+		params   Params
 	)
 
 	if t == nil || len(path) == 0 {
@@ -61,7 +82,7 @@ WALK:
 			if len(t.path) < len(path) {
 
 				if t.path != path[:len(t.path)] {
-					return nil, nil
+					break
 				}
 				path = path[len(t.path):]
 
@@ -70,32 +91,39 @@ WALK:
 				return params, t
 			} else {
 
-				return nil, nil
+				break
 			}
 		}
 
-		// 子节点
+		// 定值子节点按照索引匹配
 		c = path[0]
 		for i, idx = range t.indices {
 			if c == idx {
+
+				if len(t.nodes[i].path) > len(path) ||
+					t.nodes[i].path != path[:len(t.nodes[i].path)] {
+
+					break
+				}
+
 				t = t.nodes[i]
 				continue WALK
 			}
 		}
-
+		// 失败, 匹配模式节点, 模式节点下标和索引都是 0
 		if len(t.indices) != 0 && t.indices[0] == 0 {
 			t = t.nodes[0]
 		} else {
-			return nil, nil
+			break
 		}
 
-		// 模式节点或模式分组
+		// path 分段
 		for i = 0; i < len(path); i++ {
 			if path[i] == '/' {
 				break
 			}
 		}
-
+		// 模式节点
 		if t.pattern != nil {
 
 			if params == nil {
@@ -108,7 +136,7 @@ WALK:
 			}
 
 			if !t.pattern.Match(path[:i], params) {
-				return nil, nil
+				break
 			}
 			path = path[i:]
 			continue
@@ -117,10 +145,20 @@ WALK:
 		if params == nil && len(t.nodes) != 0 {
 			params = Params{}
 		}
-		// 模式分组
-		for _, child = range t.nodes {
 
-			if child.pattern.name == "*" {
+		// 模式分组
+
+		// 保存 catchAll 避免回溯
+		if t.nodes[0].path == "**" {
+			catchAll = t.nodes[0]
+			all = path
+		}
+
+		for j = len(t.nodes); j > 0; {
+			j--
+			child = t.nodes[j]
+
+			if j == 0 && child.path == "**" {
 				params["*"] = path
 				return params, child
 			}
@@ -132,10 +170,13 @@ WALK:
 			}
 		}
 
+		break
+	}
+	if catchAll == nil {
 		return nil, nil
 	}
-
-	return nil, nil
+	params["*"] = all
+	return params, catchAll
 }
 
 /**
@@ -191,13 +232,28 @@ func (t *Trie) add(path string) *Trie {
 			if j < len(t.nodes) {
 				// 重复
 				t = t.nodes[j]
-			} else {
-				// 新增
-				t.nodes = append(t.nodes, new(Trie))
-				t = t.nodes[j]
-				t.path = path[:i]
+				path = path[i:]
+				continue
 			}
+
+			// 新增
+
+			child = new(Trie)
+			child.path = path[:i]
+			child.pattern = newPattern(child.path)
 			path = path[i:]
+
+			if child.path == "**" && len(path) != 0 {
+				panic("rivet: catch-all routes are only allowed at the end of the path")
+			}
+
+			if child.path == "**" {
+				// 保持 "**" 位于第一个
+				t.nodes = append([]*Trie{child}, t.nodes...)
+			} else {
+				t.nodes = append(t.nodes, child)
+			}
+			t = child
 			continue
 		}
 
@@ -299,7 +355,7 @@ func (t *Trie) add(path string) *Trie {
 		child.path = path[:i]
 		child.pattern = newPattern(child.path)
 		path = path[i:]
-		if child.pattern.name == "*" && len(path) != 0 {
+		if child.path == "**" && len(path) != 0 {
 			panic("rivet: catch-all routes are only allowed at the end of the path")
 		}
 

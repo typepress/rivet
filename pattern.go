@@ -13,7 +13,9 @@ PatternClass 用于注册 Pattern 实例工厂, 内建的 class 有
 	alnum   [a-zA-Z]+[0-9]+
 	hex     [a-z0-9]+
 	uint    uint 可以接收 strconv.ParseUint 的 bitSize 参数
-注意: ":name string 0" 中的 0 无法产生作用, 应该用 ":name *" 替代.
+
+其中: string, alpha, alnum, hex 都可以加最大长度限制参数, 如:
+	":name string 10" 限制参数字符串字节长度不能超过 10
 */
 var PatternClass = map[string]func(class string, args ...string) Pattern{
 	"*":      patternBuiltin,
@@ -159,7 +161,8 @@ func newPattern(text string) *pattern {
 
 	p := new(pattern)
 	p.name = a[0]
-	if len(a) == 1 {
+	switch len(a) {
+	case 1:
 		if p.name == "" {
 			p.Pattern = NewPattern("*")
 		} else if p.name == "*" || p.name == ":" { // "/path/to/:pattern/to/**"
@@ -168,17 +171,17 @@ func newPattern(text string) *pattern {
 		} else {
 			p.Pattern = NewPattern("string")
 		}
-	} else {
-		p.Pattern = NewPattern(a[1], a[1:]...)
+	case 2:
+		p.Pattern = NewPattern(a[1])
+	default:
+		p.Pattern = NewPattern(a[1], a[2:]...)
 	}
 
 	return p
 }
 
 func (p *pattern) Match(text string, params Params) bool {
-	var v interface{}
-	var ok bool
-	v, ok = p.Pattern.Match(text)
+	v, ok := p.Pattern.Match(text)
 	if ok && p.name != "" {
 		params[p.name] = v
 	}

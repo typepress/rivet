@@ -138,7 +138,7 @@ func Test_Routing(t *testing.T) {
 
 func TestTrie(t *testing.T) {
 	var child *Trie
-	root := NewRoot()
+	root := NewRootRoute()
 
 	routes := []string{
 		"/",
