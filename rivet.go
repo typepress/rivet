@@ -52,6 +52,22 @@ type Context interface {
 }
 
 /**
+Injector 扩展 Context, 支持关联变量到 context.
+*/
+type Injector interface {
+	Context
+
+	// 以变量 v 的类型标识为 key , 关联 v 到 context.
+	Map(v interface{})
+
+	// 以指定的类型标识 t 为 key , 关联 v 到 context.
+	MapTo(v interface{}, t uint)
+
+	// 以类型标识 t 为 key, 获取关联到 context 的变量.
+	Get(t uint) interface{}
+}
+
+/**
 Route 负责通过 Context 调用 handlers, 处理 http Request.
 */
 type Route interface {
@@ -82,7 +98,7 @@ type Router interface {
 	/**
 	Add 为 HTTP method request 添加路由
 	参数:
-		method  为 "*" 或者不能识别等效 Any 方法.
+		method  "*" 等效 Any. 其它值不做处理, 直接和 http.Request.Method 比较.
 		pattern 为空等效 NotFound 方法, 重复定义将替换原来的 Route.
 	*/
 	Add(method string, pattern string, h ...Handler) Route
@@ -105,6 +121,10 @@ type Router interface {
 	// NotFound 设置匹配失败路由, 此路由只有一个.
 	NotFound(...Handler) Route
 
-	// Match 以 method, urlPath 匹配路由. 失败返回  nil, nil.
+	/**
+	Match 以 method, urlPath 匹配路由.
+	返回从 urlPath 提取的 pattern 参数和对应的路由.
+	匹配失败返回  nil, nil.
+	*/
 	Match(method, urlPath string) (Params, Route)
 }
