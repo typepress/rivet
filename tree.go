@@ -102,6 +102,11 @@ WALK:
 				params = Params{}
 			}
 
+			if t.pattern.name == "*" {
+				params["*"] = path
+				return params, t
+			}
+
 			if !t.pattern.Match(path[:i], params) {
 				return nil, nil
 			}
@@ -114,6 +119,12 @@ WALK:
 		}
 		// 模式分组
 		for _, child = range t.nodes {
+
+			if child.pattern.name == "*" {
+				params["*"] = path
+				return params, child
+			}
+
 			if child.pattern.Match(path[:i], params) {
 				t = child
 				path = path[i:]
@@ -288,6 +299,9 @@ func (t *Trie) add(path string) *Trie {
 		child.path = path[:i]
 		child.pattern = newPattern(child.path)
 		path = path[i:]
+		if child.pattern.name == "*" && len(path) != 0 {
+			panic("rivet: catch-all routes are only allowed at the end of the path")
+		}
 
 		// 模式子节点索引为 0x0, 只能有一个, 位于 nodes[0]
 		t.indices = append([]byte{0}, t.indices...)

@@ -1,7 +1,26 @@
 rivet
 =====
 
-是一个简单的 http 路由, 特点是 Context 实例由用户生成.
+[![Go Walker](http://gowalker.org/api/v1/badge)](http://gowalker.org/github.com/typepress/rivet)
+
+是一个简单的 http 路由
+
+特性
+====
+
+开放和自由是 rivet 的设计初衷
+
+* Context 实例由使用者控制生成, 更自由.
+* Handler 定义为 interface{}.
+* Handler 可接管 Context 控制权.
+* Injector 设计. 灵感源自 [Martini](https://github.com/go-martini).
+* Pattern 可自定义, 路由期进行 URL 参数检查和转换.
+* Router 的 Match 方法使它可自由组合.
+* Trie 实现的 Route 可独立使用. 灵感源自 [httprouter](https://github.com/julienschmidt/httprouter).
+* 预置的 Rivet 使用 ResponseWriteFakeFlusher 实例. 伪 http.Flusher 更符合对 Flusher 的不同需求.
+
+上述特性事实上开放了路由所有环节, rivet 实现了独立, 开放的路由设计.
+rivet 未提供 Before Handler, 因为上述特性足够开放, 自由组合可实现多种需求.
 
 路由风格
 ========
@@ -33,16 +52,23 @@ rivet
     简化风格, 用于段尾部, 等同于 ":name string".
     注意: ":name string 0" 中的 0 不能使空值生效, 应该用 ":name *".
 :
-    简化风格, 等同于 ": *". 允许空值, 只匹配不提取参数
+    等同 "*" 模式
 *
     简化风格, 等同于 ": *". 允许空值, 只匹配不提取参数
+::
+    等同 "**" 模式
+**
+    尾部全匹配, 只能用于模式尾部, 提取参数, 参数名为 "*". 例如:
+    "/path/to/catch/all/**"
+    会匹配 "/path/to/catch/all/paths", 并以 "*" 为名提取 "paths".
 ```
+
 
 使用
 ====
 
 实现这两个接口就可以自主控制 Context 的生成.
-rivet 提供了一个实现, 您也可以直接使用.
+rivet 提供类型 Rivet 实现了这两个接口, 您也可以直接使用.
 
 ```go
 /**
@@ -100,6 +126,7 @@ func main() {
 }
 ```
 
+
 Acknowledgements
 ================
 
@@ -111,6 +138,6 @@ Trie 算法和结构灵感来自 Julien Schmidt's [httprouter](https://github.co
 LICENSE
 =======
 Copyright (c) 2013 Julien Schmidt. All rights reserved.
-Copyright 2014 The TypePress Authors. All rights reserved.
+Copyright (c) 2014 The TypePress Authors. All rights reserved.
 Use of this source code is governed by a BSD-style
 license that can be found in the LICENSE file.

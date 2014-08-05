@@ -95,10 +95,13 @@ Get 根据参数 t 表示的类型标识值, 从 context 中查找关联变量�
 如果未找到, 返回 nil.
 */
 func (r *Rivet) Get(t uint) interface{} {
-	n := len(r.arg)
-	if n == 0 {
-		return nil
+	switch t {
+	case id_Context:
+		t = id_Rivet
+	case id_HttpResponseWriter:
+		t = id_ResponseWriter
 	}
+
 	return r.arg[t]
 }
 
@@ -121,6 +124,13 @@ MapTo 以类型值 t 把变量值 v 关联到 context.
 相同类型的值只会保留一份.
 */
 func (r *Rivet) MapTo(v interface{}, t uint) {
+	switch t {
+	case id_Context:
+		t = id_Rivet
+	case id_HttpResponseWriter:
+		t = id_ResponseWriter
+	}
+
 	r.arg[t] = v
 }
 
@@ -144,14 +154,16 @@ Invoke 遍历所有的 handlers.
 	func(*http.Request, Params)
 	func(*Rivet)
 	func(*Rivet, Params)
+	func(Context)
+	func(Context, Params)
 	func(*Rivet, Params, ...Handler)
+	func(Context, Params, ...Handler)
 
-定义为 func(*Rivet, Params, ...Handler) 的 handler 会接手控制权.
+最后两种类型的 handler 会使 Invoke 直接结束遍历, handler 接管控制权.
 其他 handler 会通过 reflect.Vlaue.Call 进行调用, handler 返回值被忽略.
 Invoke 最后会执行 ResponseWriter.Flush().
 
 注意:
-	NewResponseWriter 产生的实例未实现 http.Flusher.
 	Invoke 对于没有进行 Map 的类型, 用 nil 替代.
 	reflect.Vlaue.Call 可能产生 panic, 需要使用者处理.
 
@@ -168,13 +180,10 @@ func (c *Rivet) Invoke(params Params, handlers ...Handler) {
 		switch fn := h.(type) {
 		default: // 反射调用或者 Map 对象
 			if !c.mapv {
-				println("!map")
 				c.mapv = true
 				c.MapTo(params, id_Params)
 				c.MapTo(c, id_Rivet)
-				c.MapTo(c, id_Context)
 				c.MapTo(c.req, id_httpRequest)
-				c.MapTo(c.res, id_HttpResponseWriter)
 				c.MapTo(c.res, id_ResponseWriter)
 			}
 			v = reflect.ValueOf(h)
@@ -185,6 +194,9 @@ func (c *Rivet) Invoke(params Params, handlers ...Handler) {
 			c.call(v)
 
 		case func(*Rivet, Params, ...Handler): // 交接控制权
+			fn(c, params, handlers[i+1:]...)
+			return
+		case func(Context, Params, ...Handler): // 交接控制权
 			fn(c, params, handlers[i+1:]...)
 			return
 
@@ -231,10 +243,18 @@ func (c *Rivet) Invoke(params Params, handlers ...Handler) {
 		case func(*http.Request, Params):
 			fn(c.req, params)
 			continue
+
 		case func(*Rivet):
 			fn(c)
 			continue
 		case func(*Rivet, Params):
+			fn(c, params)
+			continue
+
+		case func(Context):
+			fn(c)
+			continue
+		case func(Context, Params):
 			fn(c, params)
 			continue
 		}

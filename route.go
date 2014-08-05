@@ -17,7 +17,11 @@ func (b *base) Handlers(handlers ...Handler) {
 func (b *base) Apply(params Params, context Context) {
 	if b == nil {
 		_, req := context.Source()
-		panic(req.URL.Path)
+		if req != nil {
+			panic(req.URL.Path)
+		} else {
+			panic("rivet: internal error, *base is nil")
+		}
 	}
 	if context != nil {
 		if b.rivet == nil {

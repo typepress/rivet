@@ -41,6 +41,7 @@ var badParams = []string{
 
 var hasParams = []string{
 	"GET", "/:mad uint", "/12387",
+	"GET", "/catch/all**", "/catch/all12387",
 }
 
 func Test_BadParams(t *testing.T) {
@@ -117,6 +118,10 @@ func Test_Routing(t *testing.T) {
 		result += restr + "ID"
 	})
 
+	mux.Any("/any/catch**", func(params Params) {
+		want(params["*"], "all")
+		result += restr + ":all"
+	})
 	Do("1", "POST", "/bar/bat")
 	Do("2", "GET", "/foo")
 	Do("3", "GET", "/foo/a")
@@ -126,8 +131,9 @@ func Test_Routing(t *testing.T) {
 	Do("7", "POST", "/any/foo6000")
 	Do("8", "GET", "/any/foo6000")
 	Do("9", "GET", "/repos/:git/:hub")
+	Do("0", "GET", "/any/catchall")
 
-	want(result, "1:cat2fix3:4prefix*5id6post7ID8ID9github")
+	want(result, "1:cat2fix3:4prefix*5id6post7ID8ID9github0:all")
 }
 
 func TestTrie(t *testing.T) {

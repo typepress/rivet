@@ -162,6 +162,9 @@ func newPattern(text string) *pattern {
 	if len(a) == 1 {
 		if p.name == "" {
 			p.Pattern = NewPattern("*")
+		} else if p.name == "*" || p.name == ":" { // "/path/to/:pattern/to/**"
+			p.name = "*"
+			p.Pattern = NewPattern("*")
 		} else {
 			p.Pattern = NewPattern("string")
 		}
