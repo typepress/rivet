@@ -1,6 +1,7 @@
 package rivet
 
 import (
+	"io"
 	"net/http"
 	"reflect"
 )
@@ -76,16 +77,11 @@ type Rivet struct {
 /**
 Context 生成 Context 实例, 此实例为 *Rivet.
 如果参数 res 不符合 rivet.ResponseWriter 接口,
-调用 NewResponseWriterFakeFlusher(res) 生成一个.
+用 ResponseWriterFakeFlusher 包装一个.
 */
 func (*Rivet) Context(res http.ResponseWriter, req *http.Request) Context {
-	rw, ok := res.(ResponseWriter)
-	if !ok {
-		rw = NewResponseWriterFakeFlusher(res)
-	}
-
 	c := new(Rivet)
-	c.res = rw
+	c.res = NewResponseWriterFakeFlusher(res)
 	c.req = req
 	return c
 }
@@ -108,7 +104,7 @@ func (c *Rivet) Response() http.ResponseWriter {
 }
 
 func (c *Rivet) WriteString(data string) (int, error) {
-	return c.res.Write([]byte(data))
+	return io.WriteString(c.res, data)
 }
 
 func (c *Rivet) PathParams() Params {
