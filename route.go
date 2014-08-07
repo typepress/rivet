@@ -18,7 +18,8 @@ func (b *base) Apply(params Params, context Context) {
 	if b == nil {
 		_, req := context.Source()
 		if req != nil {
-			panic(req.URL.Path)
+			panic("rivet: internal error, *base is nil for " +
+				req.Method + " \"" + req.Host + req.URL.Path + "\"")
 		} else {
 			panic("rivet: internal error, *base is nil")
 		}

@@ -45,17 +45,6 @@ func (t *Trie) Match(path string) (Params, *Trie) {
 		return nil, nil
 	}
 
-	if leaf.base == nil && len(leaf.indices) != 0 &&
-		leaf.indices[0] == 0 {
-		leaf = leaf.nodes[0]
-		if leaf.path == "" {
-			leaf = leaf.nodes[0]
-		}
-		if leaf.path != "**" {
-			return nil, nil
-		}
-	}
-
 	return params, leaf
 }
 func (t *Trie) match(path string) (Params, *Trie) {
@@ -75,112 +64,150 @@ func (t *Trie) match(path string) (Params, *Trie) {
 WALK:
 	for {
 		if len(path) == 0 {
-			return params, t
-		}
-		// 定值节点
-		if t.pattern == nil && t.indices != nil {
-			if len(t.path) < len(path) {
-
-				if t.path != path[:len(t.path)] {
-					break
-				}
-				path = path[len(t.path):]
-
-			} else if t.path == path {
-
-				return params, t
-			} else {
-
-				break
-			}
-		}
-
-		// 定值子节点按照索引匹配
-		c = path[0]
-		for i, idx = range t.indices {
-			if c == idx {
-
-				if len(t.nodes[i].path) > len(path) ||
-					t.nodes[i].path != path[:len(t.nodes[i].path)] {
-
-					break
-				}
-
-				t = t.nodes[i]
-				continue WALK
-			}
-		}
-		// 失败, 匹配模式节点, 模式节点下标和索引都是 0
-		if len(t.indices) != 0 && t.indices[0] == 0 {
-			t = t.nodes[0]
-		} else {
 			break
 		}
 
-		// path 分段
-		for i = 0; i < len(path); i++ {
-			if path[i] == '/' {
-				break
-			}
-		}
-		// 模式节点
-		if t.pattern != nil {
+		if len(t.path) == 0 {
+			// 模式分组
 
 			if params == nil {
 				params = Params{}
 			}
 
-			if t.pattern.name == "*" {
+			// path 分段
+			for i = 0; i < len(path); i++ {
+				if path[i] == '/' {
+					break
+				}
+			}
+
+			// 保存 catchAll 避免回溯
+			if t.nodes[0].path == "**" {
+				catchAll = t.nodes[0]
+				all = path
+			}
+
+			for j = len(t.nodes) - 1; j >= 0; j-- {
+				child = t.nodes[j]
+
+				if j == 0 && child.path == "**" {
+					continue
+				}
+
+				if child.pattern.Match(path[:i], params) {
+					t = child
+					path = path[i:]
+					break
+				}
+			}
+
+			if j == -1 {
+				break
+			}
+
+		} else if t.pattern == nil {
+			// 定值节点
+
+			if len(t.path) > len(path) {
+				break
+			}
+
+			if len(t.path) == len(path) {
+				if t.path == path {
+					path = ""
+				}
+				break
+			}
+
+			if t.path != path[:len(t.path)] {
+				break
+			}
+
+			path = path[len(t.path):]
+
+		} else {
+			// 模式节点
+
+			if params == nil {
+				params = Params{}
+			}
+
+			if t.path == "**" {
 				params["*"] = path
 				return params, t
+			}
+
+			// path 分段
+			for i = 0; i < len(path); i++ {
+				if path[i] == '/' {
+					break
+				}
 			}
 
 			if !t.pattern.Match(path[:i], params) {
 				break
 			}
+
 			path = path[i:]
-			continue
 		}
 
-		if params == nil && len(t.nodes) != 0 {
-			params = Params{}
+		if len(path) == 0 {
+			break
 		}
 
-		// 模式分组
-
-		// 保存 catchAll 避免回溯
-		if t.nodes[0].path == "**" {
-			catchAll = t.nodes[0]
-			all = path
-		}
-
-		for j = len(t.nodes); j > 0; {
-			j--
-			child = t.nodes[j]
-
-			if j == 0 && child.path == "**" {
-				params["*"] = path
-				return params, child
-			}
-
-			if child.pattern.Match(path[:i], params) {
-				t = child
-				path = path[i:]
+		// 子节点, 按照索引匹配
+		c = path[0]
+		for i, idx = range t.indices {
+			if c == idx {
+				t = t.nodes[i]
 				continue WALK
 			}
 		}
 
-		break
+		// 失败, 必须含有模式分组, 下标和索引都是 0
+		if len(t.indices) == 0 || t.indices[0] != 0 {
+			break
+		}
+
+		t = t.nodes[0]
 	}
+
+	if len(path) == 0 {
+
+		if t.base != nil {
+			return params, t
+		}
+
+		if len(t.indices) != 0 && t.indices[0] == 0 {
+			// catch-all
+			if t.nodes[0].path == "" {
+				t = t.nodes[0].nodes[0]
+			} else {
+				t = t.nodes[0]
+			}
+
+			if t.base != nil && t.path == "**" {
+				if params == nil {
+					params = Params{}
+				}
+				params["*"] = ""
+				return params, t
+			}
+		}
+	}
+
 	if catchAll == nil {
 		return nil, nil
 	}
+
 	params["*"] = all
 	return params, catchAll
 }
 
 /**
 Add 解析 path 增加节点.
+返回值是叶子节点, 此节点可能会被后续根节点增加的节点覆盖.
+所以保存此节点路由要使用 t.Route().
 */
 func (t *Trie) Add(path string) *Trie {
 	if len(path) == 0 {
@@ -194,6 +221,15 @@ func (t *Trie) Add(path string) *Trie {
 	return t
 }
 
+/**
+Route 返回 Trie 节点中的路由.
+注意 Trie 和路由的关系. Trie 的节点会发生改变.
+此方法返回的 Route 保持不变.
+*/
+func (t *Trie) Route() Route {
+	return t.base
+}
+
 func (t *Trie) add(path string) *Trie {
 
 	var i, j int
@@ -203,8 +239,12 @@ func (t *Trie) add(path string) *Trie {
 
 		j = len(path)
 		if j == 0 {
+			if len(t.path) == 0 {
+				panic("rivet: internal error, add a pattern group?")
+			}
 			return t
 		}
+
 		if len(t.path) < len(path) {
 			j = len(t.path)
 		}
@@ -272,6 +312,8 @@ func (t *Trie) add(path string) *Trie {
 			child.base = t.base
 			child.pattern = t.pattern
 			child.path = t.path
+			child.indices = t.indices
+			child.nodes = t.nodes
 
 			t.base = nil
 			t.pattern = nil
@@ -285,9 +327,7 @@ func (t *Trie) add(path string) *Trie {
 
 		// 去掉 t.path 和 path 相同前缀部分
 		path = path[i:]
-		if len(path) == 0 {
-			return t
-		}
+
 		/**
 		t.path 和 path 有相同前缀, 需要分割出新节点.
 		i == 0, 一定是 模式节点
@@ -305,6 +345,10 @@ func (t *Trie) add(path string) *Trie {
 			t.path = t.path[:i]
 			t.nodes = []*Trie{child}
 			t.indices = []byte{child.path[0]}
+		}
+
+		if len(path) == 0 {
+			return t
 		}
 
 		// 查找 ":","*"

@@ -81,7 +81,6 @@ func (r *router) ServeHTTP(res http.ResponseWriter, req *http.Request) {
 
 	method := req.Method
 	urlPath := req.URL.Path
-
 	params, route := r.trees[method].Match(urlPath)
 
 	if route == nil && method == "HEAD" {
@@ -139,7 +138,7 @@ func (r *router) add(method string, pattern string, handlers []Handler) Route {
 		t = NewRootRoute()
 		r.trees[method] = t
 	}
-	route = t.Add(pattern)
+	route = t.Add(pattern).base
 
 	route.Handlers(handlers...)
 	return route

@@ -17,7 +17,7 @@ func Hello(params rivet.Params, w http.ResponseWriter) {
 }
 
 func CatchAll(c rivet.Context) {
-	c.WriteString(c.PathParams().Get("*"))
+	c.WriteString("CatchAll:" + c.PathParams().Get("*"))
 }
 
 func Go(c rivet.Injector) {
@@ -39,9 +39,12 @@ func main() {
 
 	mux.Get("/", HelloWorld)
 	mux.Get("/empty", empty)
-	mux.Get("/hi/:name string 5", Hello)
-	mux.Get("/hi/**", CatchAll)
+	mux.Get("/hi/:name string 5/path/to", Hello)
+	mux.Get("/hi/:name string 5/path", Hello)
 	mux.Get("/:name", Go, GoGo)
+	mux.Get("/hi/**", CatchAll)
+
+	// 调试输出 trie 结构, 便于观察
 	_, route := mux.Match("GET", "/")
 	route.(*rivet.Trie).Print("")
 
