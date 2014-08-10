@@ -27,10 +27,9 @@ type Params map[string]interface{}
 
 // Get 返回 key 所对应值的字符串形式
 func (p Params) Get(key string) string {
-	for k, i := range p {
-		if k == key {
-			return fmt.Sprint(i)
-		}
+	i, ok := p[key]
+	if ok {
+		return fmt.Sprint(i)
 	}
 	return ""
 }
@@ -53,8 +52,8 @@ type Context interface {
 	// WriteString 方便向 http.ResponseWriter 写入 string.
 	WriteString(data string) (int, error)
 
-	//	PathParams 返回路由匹配时从 URL.Path 中提取的参数
-	PathParams() Params
+	//	Params 返回路由匹配时从 URL.Path 中提取的参数
+	Params() Params
 
 	// Handlers 负责设置 Handler, 通常这只能使用一次
 	Handlers(...Handler)

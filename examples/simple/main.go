@@ -17,7 +17,7 @@ func Hello(params rivet.Params, w http.ResponseWriter) {
 }
 
 func CatchAll(c rivet.Context) {
-	c.WriteString("CatchAll:" + c.PathParams().Get("*"))
+	c.WriteString("CatchAll:" + c.Params().Get("*"))
 }
 
 func Go(c rivet.Context) {
@@ -28,7 +28,7 @@ func GoGo(c rivet.Context) {
 	// 获取 string 类型标识
 	id := rivet.TypeIdOf("string")
 
-	c.WriteString(c.PathParams().Get("name") + "! " +
+	c.WriteString(c.Params().Get("name") + "! " +
 		c.Get(id).(string)) // 类型转换
 }
 

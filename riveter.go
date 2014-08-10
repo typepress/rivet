@@ -86,7 +86,7 @@ func (c *Rivet) WriteString(data string) (int, error) {
 	return io.WriteString(c.res, data)
 }
 
-func (c *Rivet) PathParams() Params {
+func (c *Rivet) Params() Params {
 	return c.params
 }
 

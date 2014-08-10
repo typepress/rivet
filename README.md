@@ -10,17 +10,15 @@ rivet
 
 开放和自由是 rivet 的设计初衷
 
-* Context 实例由使用者控制生成, 更自由.
-* Handler 定义为 interface{}.
-* Handler 可接管 Context 控制权.
-* Injector 设计. 灵感源自 [Martini](https://github.com/go-martini).
-* Pattern 可自定义, 路由期进行 URL 参数检查和转换.
-* Router 的 Match 方法使它可自由组合.
-* Trie 实现的 Route 可独立使用. 灵感源自 [httprouter](https://github.com/julienschmidt/httprouter).
-* 预置的 Rivet 使用 ResponseWriteFakeFlusher 实例. 伪 http.Flusher 更符合对 Flusher 的不同需求.
+* Context 接口设计, 更自由. Injector 设计. 灵感源自 [Martini](https://github.com/go-martini).
+* Handler 泛函数支持, 定义为 interface{}.
+* Node    接口设计, 只为存储 Handler.
+* Pattern 接口设计, 路由期进行 URL 参数检查和转换.
+* Router  的 Match 方法使它可独立使用.
+* Trie    高效的路由匹配, 可独立使用. 灵感源自 [httprouter](https://github.com/julienschmidt/httprouter).
+* Rivet   是预置的 Context, 内部使用伪 http.Flusher 兼容不同需求.
 
-上述特性事实上开放了路由所有环节, rivet 实现了独立, 开放的路由设计.
-rivet 未提供 Before Handler, 因为上述特性足够开放, 自由组合可实现多种需求.
+上述特性事实上开放了路由所有环节, rivet 实现了开放的路由设计.
 
 路由风格
 ========
@@ -31,7 +29,7 @@ rivet 未提供 Before Handler, 因为上述特性足够开放, 自由组合可�
 "/path/to/prefix:pattern/:pattern/:"
 ```
 
-以 "/" 分割成段.
+以 "/" 分割成段. ":" 号为开始定界符
 示例中的 "path", "to","prefix" 是字面值, 称为定值.
 
 ```
@@ -52,54 +50,31 @@ rivet 未提供 Before Handler, 因为上述特性足够开放, 自由组合可�
     简化风格, 用于段尾部, 等同于 ":name string".
     注意: ":name string 0" 中的 0 不能使空值生效, 应该用 ":name *".
 :
-    等同 "*" 模式
-*
     简化风格, 等同于 ": *". 允许空值, 只匹配不提取参数
 ::
-    等同 "**" 模式
-**
     尾部全匹配, 只能用于模式尾部, 提取参数, 参数名为 "*". 例如:
-    "/path/to/catch/all/**"
+    "/path/to/catch/all/::"
     会匹配 "/path/to/catch/all/paths", 并以 "*" 为名提取 "paths".
+*
+    "*" 可替代 ":" 作为开始定界符, 某些情况 "*" 更符合常规思维, 如:
+    "/path/to*"
+    "/path/to/catch/all/**"
 ```
 
+Rivet 在路由匹配上做了很多工作, 支持下列路由同时存在, 并正确匹配:
+
+```
+"/path/to:name"
+"/path/to:name/"
+"/path/to:name/suffix"
+"/:name"
+"/path/**"
+```
+
+即便如此, 相信仍然会有一些路由无法支持.
 
 使用
 ====
-
-实现这两个接口就可以自主控制 Context 的生成.
-rivet 提供类型 Rivet 实现了这两个接口, 您也可以直接使用.
-
-```go
-/**
-Riveter 用于生成 Context 实例, 需要用户实现.
-*/
-type Riveter interface {
-    // Context 生成 Context 实例
-    Context(res http.ResponseWriter, req *http.Request) Context
-}
-
-/**
-Context 是实际的 http Request 处理对象.
-*/
-type Context interface {
-    // Source 返回产生 Context 的参数
-    Source() (http.ResponseWriter, *http.Request)
-    /**
-    Invoke 负责调用 http.Request Handler
-    参数:
-        params 含有路由匹配模式提取到的参数
-            为 nil, 那一定是匹配失败.
-            即便 len(params) 为 0 也表示匹配成功.
-        handlers 由 Router 匹配得到.
-            当设置了 NotFound Handler 时, 也会通过此方法传递.
-            如果匹配失败, 且没有设置 NotFound Handler, 此值为 nil.
-    */
-    Invoke(params Params, handlers ...Handler)
-}
-```
-
-只需要完成这两个简单的接口就可以使用 rivet 了.
 
 示例: 运行此代码后点击 [这里](http://127.0.0.1:3000/hello/Rivet)
 
@@ -113,8 +88,8 @@ import (
 )
 
 // 简单的 handler
-func Hello(w http.ResponseWriter, params rivet.Params) {
-    w.Write([]byte("Hello " + params["name"].(string)))
+func Hello(c rivet.Context) {
+    c.WriteString("Hello " + c.Params().Get("name"))
 }
 
 func main() {

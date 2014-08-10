@@ -39,7 +39,7 @@ func (n *node) Apply(c Context) {
 	}
 
 	if n.riveter != nil {
-		c = n.riveter(c.Response(), c.Request(), c.PathParams())
+		c = n.riveter(c.Response(), c.Request(), c.Params())
 	}
 	c.Handlers(n.handler...)
 	c.Next()
