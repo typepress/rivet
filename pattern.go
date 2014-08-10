@@ -149,7 +149,8 @@ func (n patternHex) Match(s string) (interface{}, bool) {
 // route 匹配使用的 pattern
 type pattern struct {
 	Pattern
-	name string // 空值匹配不提取
+	name    string // 空值匹配不提取
+	noStyle bool   // 简化匹配
 }
 
 func newPattern(text string) *pattern {
@@ -163,6 +164,7 @@ func newPattern(text string) *pattern {
 	p.name = a[0]
 	switch len(a) {
 	case 1:
+		p.noStyle = true
 		if p.name == "" {
 			p.Pattern = NewPattern("*")
 		} else if p.name == "*" || p.name == ":" { // "/path/to/:pattern/to/**"
@@ -181,8 +183,18 @@ func newPattern(text string) *pattern {
 }
 
 func (p *pattern) Match(text string, params Params) bool {
-	v, ok := p.Pattern.Match(text)
-	if ok && p.name != "" {
+	var ok bool
+	var v interface{}
+
+	if p.noStyle {
+		if params != nil && p.name != "" {
+			params[p.name] = text
+		}
+		return true
+	}
+
+	v, ok = p.Pattern.Match(text)
+	if ok && params != nil && p.name != "" {
 		params[p.name] = v
 	}
 	return ok

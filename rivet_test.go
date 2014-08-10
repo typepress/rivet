@@ -18,21 +18,65 @@ func assert(t *testing.T, got interface{}, want interface{}, s ...string) {
 	}
 }
 
-func hasMatch(t *testing.T, mux Router, method, urlPath string) {
-	p, r := mux.Match(method, urlPath)
-	if r == nil {
-		t.Fatal("want an Route , but got nil:", urlPath)
-	}
-	if len(p) == 0 {
-		t.Fatal("want Params , but got nil:", urlPath)
-	}
-}
+func TestTrie(t *testing.T) {
+	var child *Trie
 
-func badMatch(t *testing.T, mux Router, method, urlPath string) {
-	_, r := mux.Match(method, urlPath)
-	if r != nil {
-		t.Fatal("want nil, but got an Route:")
+	root := NewRootTrie()
+
+	routes := []string{
+		"/",
+		"/hi",
+		"/b/",
+		"/search/:query",
+		"/cmd/:tool/",
+		"/src/*filepath",
+		"/x",
+		"/x/y",
+		"/y/",
+		"/y/z",
+		"/0/:id",
+		"/0/:id/1",
+		"/1/:id/",
+		"/1/:id/2",
+		"/aa",
+		"/a/",
+		"/do",
+		"/doc",
+		"/doc/go_faq.html",
+		"/doc/go1.html",
+		"/no/a",
+		"/no/b",
+		"/api/hello/:name",
+		"/empty",
+		"/hi/:name/path",
+		"/hi/:name string/path/to",
+		"/:name/path/to",
+		"/:name",
+		"/:name/path",
+		"/hi/**",
 	}
+
+	for i, path := range routes {
+		recv := catchPanic(func() {
+			child = root.Add(path)
+			child.Id = i + 1
+		})
+		if recv != nil {
+			t.Fatalf("panic *trie.Add '%s': %v", path, recv)
+		}
+	}
+
+	for i, path := range routes {
+		_, child := root.Match(path)
+
+		if child == nil {
+			t.Errorf("*trie.Match failed '%s'", path)
+		}
+		if child.Id != i+1 {
+			t.Errorf("*trie.Match route is nil'%s'", path)
+		}
+	}
+
 }
 
 var badParams = []string{
@@ -49,8 +93,15 @@ func Test_BadParams(t *testing.T) {
 	for i := 0; i < len(badParams); i += 3 {
 		mux.Add(badParams[i], badParams[i+1])
 	}
+
 	for i := 0; i < len(badParams); i += 3 {
-		badMatch(t, mux, badParams[i], badParams[i+2])
+
+		method, urlPath := badParams[i], badParams[i+2]
+
+		_, node := mux.Match(method, urlPath)
+		if node.Id() != 0 {
+			t.Fatal("want got NotFound, but got ", node.Id(), urlPath)
+		}
 	}
 }
 
@@ -59,13 +110,21 @@ func Test_HasParams(t *testing.T) {
 	for i := 0; i < len(hasParams); i += 3 {
 		mux.Add(hasParams[i], hasParams[i+1])
 	}
+
 	for i := 0; i < len(hasParams); i += 3 {
-		hasMatch(t, mux, hasParams[i], hasParams[i+2])
+		method, urlPath := hasParams[i], hasParams[i+2]
+		p, node := mux.Match(method, urlPath)
+		if node.Id() == 0 {
+			t.Fatalf("NotFound : %s", urlPath)
+		}
+		if len(p) == 0 {
+			t.Fatal("want Params , but got nil:", node.Id(), urlPath)
+		}
 	}
 }
 
 func Test_Routing(t *testing.T) {
-	mux := NewRouter(nil).(*router)
+	mux := NewRouter(nil)
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
@@ -134,63 +193,6 @@ func Test_Routing(t *testing.T) {
 	Do("0", "GET", "/any/catchall")
 
 	want(result, "1:cat2fix3:4prefix*5id6post7ID8ID9github0:all")
-}
-
-func TestTrie(t *testing.T) {
-	var child *Trie
-	root := NewRootRoute()
-
-	routes := []string{
-		"/",
-		"/hi",
-		"/b/",
-		"/search/:query",
-		"/cmd/:tool/",
-		"/src/*filepath",
-		"/x",
-		"/x/y",
-		"/y/",
-		"/y/z",
-		"/0/:id",
-		"/0/:id/1",
-		"/1/:id/",
-		"/1/:id/2",
-		"/aa",
-		"/a/",
-		"/do",
-		"/doc",
-		"/doc/go_faq.html",
-		"/doc/go1.html",
-		"/no/a",
-		"/no/b",
-		"/api/hello/:name",
-	}
-
-	for _, path := range routes {
-		recv := catchPanic(func() {
-			child = root.Add(path)
-			child.base = new(base)
-		})
-		if recv != nil {
-			t.Fatalf("panic *trie.Add '%s': %v", path, recv)
-		}
-		if child == nil {
-			t.Errorf("*trie.Add failed '%s'", path)
-		}
-	}
-
-	for _, path := range routes {
-		_, child := root.Match(path)
-
-		if child == nil {
-			t.Errorf("*trie.Match failed '%s'", path)
-		}
-		if child.base == nil {
-			t.Errorf("*trie.Match route is nil'%s'", path)
-		}
-	}
-	//p, _ := root.Match("/1/:id/2")
-	//println(p)
 }
 
 func catchPanic(testFunc func()) (recv interface{}) {

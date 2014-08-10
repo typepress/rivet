@@ -22,62 +22,45 @@ type Pattern interface {
 	Match(string) (interface{}, bool)
 }
 
-/**
-Riveter 用于生成 Context 实例.
-*/
-type Riveter interface {
-	// Context 生成 Context 实例
-	Context(res http.ResponseWriter, req *http.Request) Context
-}
-
-// Params 以 key/value 存储 URL 匹配到的参数
+// Params
 type Params map[string]interface{}
 
 // Get 返回 key 所对应值的字符串形式
 func (p Params) Get(key string) string {
-	i := p[key]
-	if i == nil {
-		return ""
+	for k, i := range p {
+		if k == key {
+			return fmt.Sprint(i)
+		}
 	}
-	return fmt.Sprint(i)
+	return ""
 }
 
 /**
-Context 是实际的 http Request 处理对象.
+Riveter 用于构建 Context.
+*/
+type Riveter func(http.ResponseWriter, *http.Request, Params) Context
+
+/**
+Context 支持关联变量到上下文.
 */
 type Context interface {
-	// Source 返回产生 Context 的 http.ResponseWriter 和 *http.Request
-	Source() (http.ResponseWriter, *http.Request)
-
 	// Request 返回产生 Context 的 *http.Request
 	Request() *http.Request
 
 	// Response 返回产生 Context 的 http.ResponseWriter
 	Response() http.ResponseWriter
 
-	// WriteString 等同于调用 Response().Write([]byte(data))
+	// WriteString 方便向 http.ResponseWriter 写入 string.
 	WriteString(data string) (int, error)
 
 	//	PathParams 返回路由匹配时从 URL.Path 中提取的参数
 	PathParams() Params
-	/**
-	Invoke 负责调用 http.Request Handler
-	参数:
-		params 含有路由匹配模式提取到的参数
-			为 nil, 那一定是匹配失败.
-			即便 len(params) 为 0 也表示匹配成功.
-		handlers 由 Router 匹配得到.
-			当设置了 NotFound Handler 时, 也会通过此方法传递.
-			如果匹配失败, 且没有设置 NotFound Handler, 此值为 nil.
-	*/
-	Invoke(params Params, handlers ...Handler)
-}
 
-/**
-Injector 扩展 Context, 支持关联变量到 context.
-*/
-type Injector interface {
-	Context
+	// Handlers 负责设置 Handler, 通常这只能使用一次
+	Handlers(...Handler)
+
+	// Next 负责调用 Handler
+	Next()
 
 	// 以变量 v 的类型标识为 key , 关联 v 到 context.
 	Map(v interface{})
@@ -87,74 +70,30 @@ type Injector interface {
 
 	// 以类型标识 t 为 key, 获取关联到 context 的变量.
 	Get(t uint) interface{}
-
-	/**
-	未确定是否增加此方法
-	Call 调用 function, 参数依据类型标识 ids 从 context 中获得.
-	function 必须是函数, ids 的顺序和 function 的参数对应.
-	真正的参数事先已关联到 context 中. 此方法可能引发 panic.
-	*/
-	// Call(function interface{}, ids ...uint)
 }
 
-/**
-Route 负责通过 Context 调用 handlers, 处理 http Request.
-*/
-type Route interface {
+// Node 保存路由 Handler, 并负责调用 Context
+type Node interface {
 	/**
-	Rivet 绑定 Riveter 实例.
-	此方法使得 Route 可以使用不同的 Context 实现.
+	Riveter 设置 Riveter.
+	此方法使得 Node 可以使用不同的 Context.
 	*/
-	Rivet(rivet Riveter)
-	/**
-	Handlers 设置 Route Handler,
-	如果 Router 生成 Route 的时候没有设置, 或者需要重新设置的话.
-	*/
-	Handlers(handlers ...Handler)
-	/**
-	Apply 以 params 和设置的 handlers 为参数调用 context.Invoke,
-	如果绑定了 Riveter, 那么生成新的 context.
-	*/
-	Apply(params Params, context Context)
-}
-
-/**
-Router 通过匹配到的 Route 调用 Context.Invoke.
-事实上为了能正常调用 Route.Match 方法, 生成 Router 的方法需要 Rivet 实例参数.
-如果不设定 NotFound Handler, 直接调用 http.NotFound, 不调用 Context.Invoke.
-*/
-type Router interface {
-	http.Handler
-	/**
-	Add 为 HTTP method request 添加路由
-	参数:
-		method  "*" 等效 Any. 其它值不做处理, 直接和 http.Request.Method 比较.
-		pattern 为空等效 NotFound 方法, 重复定义将替换原来的 Route.
-	*/
-	Add(method string, pattern string, h ...Handler) Route
-	// Any 为任意 HTTP method request 添加路由.
-	Any(pattern string, h ...Handler) Route
-	// Get 为 HTTP GET request 添加路由
-	Get(pattern string, h ...Handler) Route
-	// Put 为 HTTP PUT request 添加路由
-	Put(pattern string, h ...Handler) Route
-	// Post 为 HTTP POST request 添加路由
-	Post(pattern string, h ...Handler) Route
-	// Patch 为 HTTP PATCH request 添加路由
-	Patch(pattern string, h ...Handler) Route
-	// Head 为 HTTP HEAD request 添加路由
-	Head(pattern string, h ...Handler) Route
-	// Delete 为 HTTP DELETE request 添加路由
-	Delete(pattern string, h ...Handler) Route
-	// Options 为 HTTP OPTIONS request 添加路由
-	Options(pattern string, h ...Handler) Route
-	// NotFound 设置匹配失败路由, 此路由只有一个.
-	NotFound(...Handler) Route
+	Riveter(riveter Riveter)
 
 	/**
-	Match 以 method, urlPath 匹配路由.
-	返回从 urlPath 提取的 pattern 参数和对应的路由.
-	匹配失败返回  nil, nil.
+	Handlers 设置路由 Handler.
 	*/
-	Match(method, urlPath string) (Params, Route)
+	Handlers(handler ...Handler)
+
+	/**
+	Apply 调用 Context 的 Next() 方法.
+	如果设置了 Riveter, 生成新 Context 并调用新的 Next().
+	*/
+	Apply(context Context)
+
+	/**
+	Id 返回 Node 的识别 id, 特别的 0 表示 NotFound 节点.
+	此 id 在生成的时候确定.
+	*/
+	Id() int
 }
