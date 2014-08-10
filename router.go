@@ -78,12 +78,12 @@ func (r *Router) Any(pattern string, h ...Handler) Node {
 }
 
 /**
-Add 为 HTTP method request 添加路由
+Handle 为 HTTP method request 设置路由
 参数:
 	method  "*" 等效 Any. 其它值不做处理, 直接和 http.Request.Method 比较.
 	pattern 为空等效 NotFound 方法.
 */
-func (r *Router) Add(method string, pattern string, h ...Handler) Node {
+func (r *Router) Handle(method string, pattern string, h ...Handler) Node {
 	return r.add(method, pattern, h)
 }
 

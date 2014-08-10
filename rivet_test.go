@@ -91,7 +91,7 @@ var hasParams = []string{
 func Test_BadParams(t *testing.T) {
 	mux := NewRouter(nil)
 	for i := 0; i < len(badParams); i += 3 {
-		mux.Add(badParams[i], badParams[i+1])
+		mux.Handle(badParams[i], badParams[i+1])
 	}
 
 	for i := 0; i < len(badParams); i += 3 {
@@ -108,7 +108,7 @@ func Test_BadParams(t *testing.T) {
 func Test_HasParams(t *testing.T) {
 	mux := NewRouter(nil)
 	for i := 0; i < len(hasParams); i += 3 {
-		mux.Add(hasParams[i], hasParams[i+1])
+		mux.Handle(hasParams[i], hasParams[i+1])
 	}
 
 	for i := 0; i < len(hasParams); i += 3 {
