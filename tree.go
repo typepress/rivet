@@ -16,27 +16,43 @@ func slashCount(path string) (c int) {
 	return
 }
 
-func parsePattern(path string) (slash, patterns int, noStyle, cathAll bool) {
-	noStyle = true
+func parsePattern(path string) (slash int, keys []string, cathAll bool) {
+
 	size := len(path)
+	keys = []string{}
+
 	for i := 0; i < size; i++ {
 		switch path[i] {
 		case '/':
 			slash++
 		case ':', '*':
-			patterns++
-			if path[i] == '*' && i+1 < size && path[i+1] == '*' {
+			if i+1 < size && path[i] == path[i+1] {
 				cathAll = true
+				if i+2 != size {
+					panic("rivet: catch-all must be end of pattern. " + path)
+				}
+				keys = append(keys, "*")
+				break
 			}
 
+			j := i + 1
+			k := 0
 			for ; i < size; i++ {
-				if path[i] == ' ' {
-					noStyle = false
+				if k == 0 && path[i] == ' ' {
+					k = i
 				}
 				if path[i] == '/' {
 					slash++
 					break
 				}
+			}
+
+			if k == 0 {
+				k = i
+			}
+
+			if path[j:k] != "" {
+				keys = append(keys, path[j:k])
 			}
 		}
 	}
@@ -62,8 +78,8 @@ NewRootTrie 已经已经设置好根节点, 因此节点总是已经设置好.
 	模式分组的 path 为 "", 子节点为模式节点数组.
 */
 type Trie struct {
+	*perk
 	Id       int // 用户数据标识, 0 表示非路由节点
-	pattern  *pattern
 	nodes    []*Trie
 	indices  []byte
 	path     string
@@ -129,7 +145,7 @@ WALK:
 			}
 
 			// 保存 catchAll 避免回溯
-			if t.nodes[0].pattern.name == "*" {
+			if t.nodes[0].name == "*" {
 				catchAll = t.nodes[0]
 				all = path
 			}
@@ -144,7 +160,7 @@ WALK:
 					continue
 				}
 
-				if t.nodes[j].pattern.Match(path[:i], params) {
+				if t.nodes[j].Perk(path[:i], params) {
 					t = t.nodes[j]
 					path = path[i:]
 					break
@@ -191,7 +207,7 @@ WALK:
 			params = Params{}
 		}
 
-		if t.pattern.name == "*" {
+		if t.name == "*" {
 			params["*"] = path
 			return params, t
 		}
@@ -203,7 +219,7 @@ WALK:
 			}
 		}
 
-		if !t.pattern.Match(path[:i], params) {
+		if !t.Perk(path[:i], params) {
 			break
 		}
 		path = path[i:]
@@ -223,7 +239,7 @@ WALK:
 				t = t.nodes[0]
 			}
 
-			if t.Id != 0 && t.pattern.name == "*" {
+			if t.Id != 0 && t.name == "*" {
 				if params == nil {
 					params = Params{}
 				}
@@ -272,7 +288,7 @@ func (t *Trie) Add(path string) *Trie {
 			return t
 		}
 
-		if t.pattern != nil && t.pattern.name == "*" {
+		if t.perk != nil && t.name == "*" {
 			panic("rivet: catch-all routes are only allowed at the end of the path")
 		}
 
@@ -316,16 +332,16 @@ func (t *Trie) Add(path string) *Trie {
 
 			child = new(Trie)
 			child.path = path[:i]
-			child.pattern = newPattern(child.path)
+			child.perk = newPerk(child.path)
 			path = path[i:]
 
-			if child.pattern.name == "*" {
+			if child.name == "*" {
 				// 保持 "**" 位于第一个
 				t.nodes = append([]*Trie{child}, t.nodes...)
 			} else {
 
 				i = sort.Search(len(t.nodes), func(i int) bool {
-					if t.nodes[i].pattern.name == "*" {
+					if t.nodes[i].name == "*" {
 						return false
 					}
 					return t.nodes[i].slashMax < slashMax
@@ -360,13 +376,13 @@ func (t *Trie) Add(path string) *Trie {
 		if i != 0 && len(t.path) > i {
 			child = new(Trie)
 			child.Id = t.Id
-			child.pattern = t.pattern
+			child.perk = t.perk
 			child.path = t.path[i:]
 			child.nodes = t.nodes
 			child.indices = t.indices
 
 			t.Id = 0
-			t.pattern = nil
+			t.perk = nil
 			t.path = t.path[:i]
 			t.nodes = []*Trie{child}
 			t.indices = []byte{child.path[0]}
@@ -406,11 +422,27 @@ func (t *Trie) Add(path string) *Trie {
 			child.slashMax = t.slashMax - slashCount(t.path)
 			child.slash = slashCount(child.path)
 
-			t.indices = append(t.indices, path[0])
-			t.nodes = append(t.nodes, child)
+			path = path[i:]
+
+			i = sort.Search(len(t.nodes), func(i int) bool {
+				if t.indices[i] == 0 {
+					return false
+				}
+				return t.nodes[i].slashMax < child.slashMax
+			})
+
+			t.nodes = append(t.nodes, nil)
+			t.indices = append(t.indices, 0)
+			for j = len(t.nodes) - 1; j > i; j-- {
+				t.nodes[j] = t.nodes[j-1]
+				t.indices[j] = t.indices[j-1]
+			}
+
+			t.nodes[i] = child
+			t.indices[i] = child.path[0]
 
 			t = child
-			path = path[i:]
+
 			continue
 		}
 
@@ -426,7 +458,7 @@ func (t *Trie) Add(path string) *Trie {
 			// 分割为分组节点
 			child = new(Trie)
 			child.Id = t.Id
-			child.pattern = t.pattern
+			child.perk = t.perk
 			child.path = t.path
 			child.indices = t.indices
 			child.nodes = t.nodes
@@ -434,7 +466,7 @@ func (t *Trie) Add(path string) *Trie {
 			child.slashMax = t.slashMax
 
 			t.Id = 0
-			t.pattern = nil
+			t.perk = nil
 			t.path = ""
 			t.indices = nil
 			t.nodes = []*Trie{child}
@@ -451,7 +483,7 @@ func (t *Trie) Add(path string) *Trie {
 
 		child = new(Trie)
 		child.path = path[:i]
-		child.pattern = newPattern(child.path)
+		child.perk = newPerk(child.path)
 		child.slash = slashCount(child.path)
 		path = path[i:]
 
@@ -481,7 +513,7 @@ func (t *Trie) Print(prefix string) {
 	if t.Id != 0 {
 		info[0] = 'R'
 	}
-	if t.pattern != nil {
+	if t.perk != nil {
 		info[1] = 'P'
 	}
 	if len(t.path) == 0 {

@@ -16,29 +16,34 @@ var (
 
 /**
 TypeIdOf 返回 v 的类型签名地址, 转换为 uint 类型.
-此方法使用 reflect 获取 rType 的类型地址.
+此方法使用 reflect 获取类型地址.
 
 示例:
-获取接口对象 v 的接口类型签名:
+获取 fmt.Stringer 接口类型签名:
 
-	// 获取 fmt.Stringer 接口类型签名
 	var v *fmt.Stringer
 	_ = TypeIdOf(v)
 	// 或者
 	_ = TypeIdOf((*fmt.Stringer)(nil))
 
-  // 获取 reflect.Type 的类型签名
+获取 reflect.Type 本身的类型签名:
+
 	var rt *reflect.Type
 	_ = TypeIdOf(rt) // reflect.Type 也是接口类型
+	// 或者
+	t := reflect.TypeOf(nil)
+	_ = TypeIdOf(&t)
 
+获取函数的参数类型签名:
 
-这样获取的是 AnyType 的类型签名, 而不是 reflect.Type 的.
+	t := reflect.TypeOf(fmt.Println)
+	_ = TypeIdOf(t.In(0))
 
 非接口类型:
 
 	var s string
-	_ = TypeIdOf(s)
-	v := AnyNotInterfaceType{}
+	_ = TypeIdOf(s) // 等同 TypeIdOf("")
+	var v AnyNotInterfaceType
 	_ = TypeIdOf(v)
 */
 func TypeIdOf(v interface{}) uint {
@@ -74,22 +79,27 @@ func NewContext(res http.ResponseWriter, req *http.Request, params Params) Conte
 	return c
 }
 
+// Request 返回生成 Context 的 *http.Request
 func (c *Rivet) Request() *http.Request {
 	return c.req
 }
 
+// Response 返回生成 Context 的 http.ResponseWriter
 func (c *Rivet) Response() http.ResponseWriter {
 	return c.res
 }
 
+// WriteString 方便向 http.ResponseWriter 写入 string.
 func (c *Rivet) WriteString(data string) (int, error) {
 	return io.WriteString(c.res, data)
 }
 
+//	Params 返回路由匹配时从 URL.Path 中提取的参数
 func (c *Rivet) Params() Params {
 	return c.params
 }
 
+// Handlers 设置 Handler, 第一次使用有效.
 func (c *Rivet) Handlers(h ...Handler) {
 	if c.handler == nil {
 		c.handler = h
@@ -97,7 +107,7 @@ func (c *Rivet) Handlers(h ...Handler) {
 }
 
 /**
-Get 根据参数 t 表示的类型标识值, 从 context 中查找关联变量值.
+Get 以类型标识 t 为 key, 获取关联到 context 的变量.
 如果未找到, 返回 nil.
 */
 func (r *Rivet) Get(t uint) interface{} {
@@ -129,10 +139,8 @@ func (r *Rivet) Map(v interface{}) {
 
 /**
 MapTo 以 t 为 key 把变量 v 关联到 context. 相同 t 值只保留一个.
-调用者也许会自己选择一个值, 注意选择值不能有类型标识冲突.
-因为 Invoke 会自动从 Handler 函数中提取参数的类型标识,
-如果 t 值不能对应某个类型, Invoke 也无法正确获取到变量.
-可能现实中某些 v 是由调用者通过 Get(t) 获取, 和 Invoke 无关.
+调用者也许会自己定义一个值, 注意选择值不能和真实类型标识冲突.
+否则可能会传递给 Handler 错误的参数.
 */
 func (r *Rivet) MapTo(v interface{}, t uint) {
 	if r.val == nil {
@@ -142,17 +150,17 @@ func (r *Rivet) MapTo(v interface{}, t uint) {
 }
 
 /**
-Next 遍历所有的 handler 函数. handler 函数返回值被忽略.
-如果 handler 不是函数, 则被 Map 到 context.
+Next 遍历调用 handler 函数. handler 函数返回值被忽略.
+如果 handler 不是函数, 使用 Map 关联到 context.
 如果 ResponseWriter.Written() 为 true, 终止遍历.
-下列定义的 handler 函数被快速匹配:
+下列 handler 被直接匹配, 参数直接传递, 未用 Get 从 context 获取:
 
 	func()
 	func(Context)
 	func(*http.Request)
 	func(ResponseWriter)
-	func(http.ResponseWriter)
 	func(ResponseWriter, *http.Request)
+	func(http.ResponseWriter)
 	func(http.ResponseWriter, *http.Request)
 	func(Params)
 	func(Params, *http.Request)
@@ -165,7 +173,7 @@ Next 最后会执行 ResponseWriter.Flush().
 
 注意:
 	Next 对于没有进行 Map 的类型, 用 nil 替代.
-	reflect.Vlaue.Call 可能产生 panic, 需要使用者处理.
+	Next 未捕获调用 handler 可能产生的 panic, 需要使用者处理.
 */
 func (c *Rivet) Next() {
 	var v reflect.Value
@@ -179,7 +187,8 @@ func (c *Rivet) Next() {
 		c.handler = c.handler[1:]
 
 		switch fn := h.(type) {
-		default: // 反射调用或者 Map 对象
+		default:
+			// 反射调用或者 Map 对象
 
 			v = reflect.ValueOf(h)
 			if v.Kind() != reflect.Func {
@@ -189,6 +198,9 @@ func (c *Rivet) Next() {
 			c.call(v)
 		case func():
 			fn()
+		case func(Context):
+			fn(c)
+
 		case func(ResponseWriter):
 			fn(c.res)
 		case func(http.ResponseWriter):

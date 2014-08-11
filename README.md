@@ -13,7 +13,7 @@ rivet
 * Context 接口设计, 更自由. Injector 设计. 灵感源自 [Martini](https://github.com/go-martini).
 * Handler 泛函数支持, 定义为 interface{}.
 * Node    接口设计, 只为存储 Handler.
-* Pattern 接口设计, 路由期进行 URL 参数检查和转换.
+* Filter  接口设计, 路由期进行 URL.Path 参数过滤和转换.
 * Router  的 Match 方法使它可独立使用.
 * Trie    高效的路由匹配, 可独立使用. 灵感源自 [httprouter](https://github.com/julienschmidt/httprouter).
 * Rivet   是预置的 Context, 内部使用伪 http.Flusher 兼容不同需求.
@@ -40,7 +40,7 @@ rivet
    cat
     为参数名, 省略表示只验证不提取参数, 形如 ": string"
         string
-            为类型名, 可以注册自定义 class 到 PatternClass 变量.
+            为类型名, 可以注册自定义 class 到 FilterClass 变量.
         6
             为参数, 所有内建类型可以设置一个限制长度参数, 最大值 255. 例如
             ":name string 6"

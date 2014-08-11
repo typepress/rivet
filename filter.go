@@ -6,7 +6,10 @@ import (
 )
 
 /**
-PatternClass 用于注册 Pattern 实例工厂, 内建的 class 有
+FilterClass 保存 Fliter 生成器, 使用者可注册新的生成器.
+
+内建 class 列表:
+
 	*       Unicode characters, 允许空值, 等同于: ": *"
 	string  非空 Unicode characters, 缺省值, 如果没有参数可省略.
 	alpha   [a-zA-Z]+
@@ -17,72 +20,72 @@ PatternClass 用于注册 Pattern 实例工厂, 内建的 class 有
 其中: string, alpha, alnum, hex 都可以加最大长度限制参数, 如:
 	":name string 10" 限制参数字符串字节长度不能超过 10
 */
-var PatternClass = map[string]func(class string, args ...string) Pattern{
-	"*":      patternBuiltin,
-	"string": patternBuiltin,
-	"alpha":  patternBuiltin,
-	"alnum":  patternBuiltin,
-	"hex":    patternBuiltin,
-	"uint":   patternBuiltin,
+var FilterClass = map[string]FilterBuilder{
+	"*":      builtinFilter,
+	"string": builtinFilter,
+	"alpha":  builtinFilter,
+	"alnum":  builtinFilter,
+	"hex":    builtinFilter,
+	"uint":   builtinFilter,
 }
 
 /**
-NewPattern 通过访问 PatternClass 生成一个 Pattern
+NewFilter 通过访问 FilterClass 生成一个 Filter
 如果 class 不存在或者生成 nil 将抛出 panic.
 */
-func NewPattern(class string, args ...string) Pattern {
-	fn := PatternClass[class]
+func NewFilter(class string, args ...string) Filter {
+	fn := FilterClass[class]
 	if fn == nil {
-		panic("rivet: not exists Pattern class " + class)
+		panic("rivet: not exists Filter class " + class)
 	}
 	p := fn(class, args...)
 	if p == nil {
-		panic("rivet: want an Pattern, but got nil " + class)
+		panic("rivet: want an Filter, but got nil " + class)
 	}
 	return p
 }
 
-func patternBuiltin(class string, args ...string) Pattern {
+func builtinFilter(class string, args ...string) Filter {
 	n := 0
 	if len(args) != 0 {
 		n, _ = strconv.Atoi(args[0])
 	}
 	switch class {
 	case "*":
-		return patternPass(true)
+		return filterPass(true)
 	case "string":
-		return patternString(n)
+		return filterString(n)
 	case "alpha":
-		return patternAlpha(n)
+		return filterAlpha(n)
 	case "alnum":
-		return patternAlnum(n)
+		return filterAlnum(n)
 	case "hex":
-		return patternHex(n)
+		return filterHex(n)
 	case "uint":
-		return patternUint(n)
+		return filterUint(n)
 	}
 	return nil
 }
 
-type patternPass bool
-type patternString int
-type patternAlpha int
-type patternUint int
-type patternAlnum int
-type patternHex int
+type filterPass bool
+type filterString int
+type filterAlpha int
+type filterUint int
+type filterAlnum int
+type filterHex int
 
-func (n patternPass) Match(s string) (interface{}, bool) {
+func (n filterPass) Filter(s string) (interface{}, bool) {
 	return s, true
 }
 
-func (n patternString) Match(s string) (interface{}, bool) {
+func (n filterString) Filter(s string) (interface{}, bool) {
 	if n != 0 && int(n) < len(s) {
 		return nil, false
 	}
 	return s, len(s) != 0
 }
 
-func (n patternAlpha) Match(s string) (interface{}, bool) {
+func (n filterAlpha) Filter(s string) (interface{}, bool) {
 
 	if n != 0 && int(n) < len(s) {
 		return nil, false
@@ -96,7 +99,7 @@ func (n patternAlpha) Match(s string) (interface{}, bool) {
 	return s, true
 }
 
-func (n patternUint) Match(s string) (interface{}, bool) {
+func (n filterUint) Filter(s string) (interface{}, bool) {
 
 	i, err := strconv.ParseUint(s, 10, int(n))
 	if err != nil {
@@ -115,7 +118,7 @@ func (n patternUint) Match(s string) (interface{}, bool) {
 	return uint(i), true
 }
 
-func (n patternAlnum) Match(s string) (interface{}, bool) {
+func (n filterAlnum) Filter(s string) (interface{}, bool) {
 	if n != 0 && int(n) < len(s) {
 		return nil, false
 	}
@@ -133,7 +136,7 @@ func (n patternAlnum) Match(s string) (interface{}, bool) {
 	return s, true
 }
 
-func (n patternHex) Match(s string) (interface{}, bool) {
+func (n filterHex) Filter(s string) (interface{}, bool) {
 	if n != 0 && int(n) < len(s) {
 		return nil, false
 	}
@@ -146,43 +149,43 @@ func (n patternHex) Match(s string) (interface{}, bool) {
 	return s, true
 }
 
-// route 匹配使用的 pattern
-type pattern struct {
-	Pattern
+// Node 专用
+type perk struct {
+	filter  Filter
 	name    string // 空值匹配不提取
 	noStyle bool   // 简化匹配
 }
 
-func newPattern(text string) *pattern {
+func newPerk(text string) *perk {
 	if text[0] != ':' && text[0] != '*' {
-		panic("rivet: internal error form newPattern : " + text)
+		panic("rivet: internal error form newFilter : " + text)
 	}
 
 	a := strings.Split(text[1:], " ")
 
-	p := new(pattern)
+	p := new(perk)
 	p.name = a[0]
 	switch len(a) {
 	case 1:
 		p.noStyle = true
 		if p.name == "" {
-			p.Pattern = NewPattern("*")
+			p.filter = NewFilter("*")
 		} else if p.name == "*" || p.name == ":" { // "/path/to/:pattern/to/**"
 			p.name = "*"
-			p.Pattern = NewPattern("*")
+			p.filter = NewFilter("*")
 		} else {
-			p.Pattern = NewPattern("string")
+			p.filter = NewFilter("string")
 		}
 	case 2:
-		p.Pattern = NewPattern(a[1])
+		p.filter = NewFilter(a[1])
 	default:
-		p.Pattern = NewPattern(a[1], a[2:]...)
+		p.filter = NewFilter(a[1], a[2:]...)
 	}
 
 	return p
 }
 
-func (p *pattern) Match(text string, params Params) bool {
+func (p *perk) Perk(text string, params Params) bool {
 	var ok bool
 	var v interface{}
 
@@ -193,7 +196,7 @@ func (p *pattern) Match(text string, params Params) bool {
 		return true
 	}
 
-	v, ok = p.Pattern.Match(text)
+	v, ok = p.filter.Filter(text)
 	if ok && params != nil && p.name != "" {
 		params[p.name] = v
 	}

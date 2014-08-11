@@ -5,48 +5,74 @@ import (
 	"net/http"
 )
 
-/**
-Pattern 用于路由中的模式匹配接口.
-*/
-type Pattern interface {
-	/**
-	Match 匹配 URL 中的某一段.
-	参数:
-		路由实例: "/blog/cat:id num 6", pattern 为 ":id num 6"
-		URL 实例: "/blog/cat3282"
-			传递给 Match 的参数是字符串 "3282".
-	返回值:
-		匹配处理后的数据
-		bool 值表示是否匹配成功
-	*/
-	Match(string) (interface{}, bool)
-}
-
 // Params
 type Params map[string]interface{}
 
 // Get 返回 key 所对应值的字符串形式
 func (p Params) Get(key string) string {
+
 	i, ok := p[key]
-	if ok {
-		return fmt.Sprint(i)
+
+	if !ok {
+		return ""
 	}
-	return ""
+
+	s, ok := i.(string)
+	if ok {
+		return s
+	}
+
+	return fmt.Sprint(i)
 }
 
 /**
-Riveter 用于构建 Context.
+Riveter 是 Context 生成器.
 */
 type Riveter func(http.ResponseWriter, *http.Request, Params) Context
 
 /**
-Context 支持关联变量到上下文.
+NodeBuilder 是 Node 生成器.
+参数:
+	id  识别号码
+	key 用于过滤 URL.Path 参数名, 缺省全通过
+*/
+type NodeBuilder func(id int, key ...string) Node
+
+/**
+FilterBuilder 是 Filter 生成器.
+参数:
+	class 为 Filter 类型名.
+	args  为参数.
+*/
+type FilterBuilder func(class string, args ...string) Filter
+
+/**
+Filter 过滤转换 URL.Path 参数.
+*/
+type Filter interface {
+	/**
+	Filter 检验 URL.Path 中的某一段参数.
+	参数:
+		路由实例: "/blog/cat:id num 6"
+			"id" 为参数名, "num" 为类型名, "6" 是参数.
+		URL 实例: "/blog/cat3282"
+			传递给 Filter 的参数是字符串 "3282".
+			Filter 无需知道参数名, 另外处理.
+	返回值:
+		interface{} 通过检查/转换后的数据
+		bool 值表示是否通过检查成功
+	*/
+	Filter(string) (interface{}, bool)
+}
+
+/**
+Context 关联变量到 Request 上下文, 并调用 Handler.
 */
 type Context interface {
-	// Request 返回产生 Context 的 *http.Request
+	// Request 返回生成 Context 的 *http.Request
 	Request() *http.Request
 
-	// Response 返回产生 Context 的 http.ResponseWriter
+	// Response 返回生成 Context 的 http.ResponseWriter
 	Response() http.ResponseWriter
 
 	// WriteString 方便向 http.ResponseWriter 写入 string.
@@ -55,23 +81,30 @@ type Context interface {
 	//	Params 返回路由匹配时从 URL.Path 中提取的参数
 	Params() Params
 
-	// Handlers 负责设置 Handler, 通常这只能使用一次
+	// Handlers 设置 Handler, 通常这只能使用一次
 	Handlers(...Handler)
 
 	// Next 负责调用 Handler
 	Next()
 
-	// 以变量 v 的类型标识为 key , 关联 v 到 context.
+	// Map 等同 MapTo(v, TypeIdOf(v))
 	Map(v interface{})
 
-	// 以指定的类型标识 t 为 key , 关联 v 到 context.
+	/**
+	MapTo 以 t 为 key 把变量 v 关联到 context. 相同 t 值只保留一个.
+	*/
 	MapTo(v interface{}, t uint)
 
-	// 以类型标识 t 为 key, 获取关联到 context 的变量.
+	/**
+	Get 以类型标识 t 为 key, 获取关联到 context 的变量.
+	如果未找到, 返回 nil.
+	*/
 	Get(t uint) interface{}
 }
 
-// Node 保存路由 Handler, 并负责调用 Context
+/**
+Node 保存路由 Handler, 并调用 Context 的 Handlers 和 Next 方法.
+*/
 type Node interface {
 	/**
 	Riveter 设置 Riveter.
@@ -85,13 +118,13 @@ type Node interface {
 	Handlers(handler ...Handler)
 
 	/**
-	Apply 调用 Context 的 Next() 方法.
-	如果设置了 Riveter, 生成新 Context 并调用新的 Next().
+	Apply 调用 Context 的 Handlers 和 Next 方法.
+	如果设置了 Riveter, 使用 Riveter 生成新 Context.
 	*/
 	Apply(context Context)
 
 	/**
-	Id 返回 Node 的识别 id, 特别的 0 表示 NotFound 节点.
+	Id 返回 Node 的识别 id, 0 表示 NotFound 节点.
 	此 id 在生成的时候确定.
 	*/
 	Id() int
