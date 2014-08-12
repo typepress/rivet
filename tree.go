@@ -79,7 +79,7 @@ NewRootTrie 已经已经设置好根节点, 因此节点总是已经设置好.
 */
 type Trie struct {
 	*perk
-	Id       int // 用户数据标识, 0 表示非路由节点
+	id       int // 用户数据标识, 0 表示非路由节点
 	nodes    []*Trie
 	indices  []byte
 	path     string
@@ -92,6 +92,27 @@ NewRootTrie 返回新的根节点 Trie, 已经设置路径为 "/".
 */
 func NewRootTrie() *Trie {
 	return &Trie{path: "/", indices: []byte{}, slash: 1, slashMax: 1}
+}
+
+/**
+GetId 返回用户数据标识 id, 0 表示非路由节点
+*/
+func (t *Trie) GetId() int {
+	return t.id
+}
+
+/**
+SetId 设置用户数据标识 id.
+SetId 内部允许设置条件为:
+
+	id != 0 && t.id == 0 && len(t.path) != 0
+
+其中 len(t.path) 为 0 是分组节点, 不能用于路由.
+*/
+func (t *Trie) SetId(id int) {
+	if id != 0 && t.id == 0 && len(t.path) != 0 {
+		t.id = id
+	}
 }
 
 /**
@@ -227,7 +248,7 @@ WALK:
 
 	if len(path) == 0 {
 
-		if t.Id != 0 {
+		if t.id != 0 {
 			return params, t
 		}
 
@@ -239,7 +260,7 @@ WALK:
 				t = t.nodes[0]
 			}
 
-			if t.Id != 0 && t.name == "*" {
+			if t.id != 0 && t.name == "*" {
 				if params == nil {
 					params = Params{}
 				}
@@ -249,7 +270,7 @@ WALK:
 		}
 	}
 
-	if catchAll == nil || catchAll.Id == 0 {
+	if catchAll == nil || catchAll.id == 0 {
 		return nil, nil
 	}
 	params["*"] = all
@@ -375,13 +396,13 @@ func (t *Trie) Add(path string) *Trie {
 		*/
 		if i != 0 && len(t.path) > i {
 			child = new(Trie)
-			child.Id = t.Id
+			child.id = t.id
 			child.perk = t.perk
 			child.path = t.path[i:]
 			child.nodes = t.nodes
 			child.indices = t.indices
 
-			t.Id = 0
+			t.id = 0
 			t.perk = nil
 			t.path = t.path[:i]
 			t.nodes = []*Trie{child}
@@ -457,7 +478,7 @@ func (t *Trie) Add(path string) *Trie {
 			}
 			// 分割为分组节点
 			child = new(Trie)
-			child.Id = t.Id
+			child.id = t.id
 			child.perk = t.perk
 			child.path = t.path
 			child.indices = t.indices
@@ -465,7 +486,7 @@ func (t *Trie) Add(path string) *Trie {
 			child.slash = t.slash
 			child.slashMax = t.slashMax
 
-			t.Id = 0
+			t.id = 0
 			t.perk = nil
 			t.path = ""
 			t.indices = nil
@@ -510,7 +531,7 @@ Id 斜线个数[RPG] 缩进'path' 子节点数量[子节点首字符]
 func (t *Trie) Print(prefix string) {
 	info := []byte{' ', ' ', ' '}
 
-	if t.Id != 0 {
+	if t.id != 0 {
 		info[0] = 'R'
 	}
 	if t.perk != nil {
@@ -520,7 +541,7 @@ func (t *Trie) Print(prefix string) {
 		info[2] = 'G'
 	}
 
-	fmt.Printf("%4d %2d[%v] %s'%s' %4d[%s]\n", t.Id, t.slashMax, string(info), prefix, t.path, len(t.nodes), string(t.indices))
+	fmt.Printf("%4d %2d[%v] %s'%s' %4d[%s]\n", t.id, t.slashMax, string(info), prefix, t.path, len(t.nodes), string(t.indices))
 
 	for l := len(t.path); l >= 0; l-- {
 		prefix += " "

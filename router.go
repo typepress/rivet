@@ -124,11 +124,18 @@ func (r *Router) Match(method, urlPath string) (Params, Node) {
 		params, trie = r.trees["*"].Match(urlPath)
 	}
 
-	if trie == nil || trie.Id == 0 {
+	if trie == nil || trie.id == 0 {
 		return nil, r.nodes[0]
 	}
 
-	return params, r.nodes[trie.Id]
+	return params, r.nodes[trie.id]
+}
+
+/**
+RootTrie 返回 method 对应的 *Trie 根节点.
+*/
+func (r *Router) RootTrie(method string) *Trie {
+	return r.trees[method]
 }
 
 func (r *Router) add(method string, pattern string, handlers []Handler) Node {
@@ -148,15 +155,15 @@ func (r *Router) add(method string, pattern string, handlers []Handler) Node {
 	}
 
 	trie := t.Add(pattern)
-	if trie.Id != 0 {
-		r.nodes[trie.Id].Handlers(handlers...)
-		return r.nodes[trie.Id]
+	if trie.id != 0 {
+		r.nodes[trie.id].Handlers(handlers...)
+		return r.nodes[trie.id]
 	}
 
-	trie.Id = len(r.nodes)
+	trie.id = len(r.nodes)
 
 	_, keys, _ := parsePattern(pattern)
-	node := r.newNode(trie.Id, keys...)
+	node := r.newNode(trie.id, keys...)
 	node.Handlers(handlers...)
 	r.nodes = append(r.nodes, node)
 

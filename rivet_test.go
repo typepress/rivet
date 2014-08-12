@@ -59,7 +59,7 @@ func TestTrie(t *testing.T) {
 	for i, path := range routes {
 		recv := catchPanic(func() {
 			child = root.Add(path)
-			child.Id = i + 1
+			child.id = i + 1
 		})
 		if recv != nil {
 			t.Fatalf("panic *trie.Add '%s': %v", path, recv)
@@ -72,7 +72,7 @@ func TestTrie(t *testing.T) {
 		if child == nil {
 			t.Errorf("*trie.Match failed '%s'", path)
 		}
-		if child.Id != i+1 {
+		if child.id != i+1 {
 			t.Errorf("*trie.Match route is nil'%s'", path)
 		}
 	}
