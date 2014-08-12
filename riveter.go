@@ -12,6 +12,7 @@ var (
 	id_ResponseWriter     = TypeIdOf((*http.ResponseWriter)(nil))
 	id_Context            = TypeIdOf((*Context)(nil))
 	id_Params             = TypeIdOf(Params{})
+	id_MapStringInterface = TypeIdOf(map[string]interface{}{})
 )
 
 /**
@@ -109,6 +110,8 @@ func (c *Rivet) Handlers(h ...Handler) {
 /**
 Get 以类型标识 t 为 key, 获取关联到 context 的变量.
 如果未找到, 返回 nil.
+特别的如果函数参数用了 map[string]interface{}, 且 Get 为 nil, 用 Params 代替.
+这样做, 如果不用 Map 功能, 所写的 Handler 就不需要 import rivet.
 */
 func (r *Rivet) Get(t uint) interface{} {
 
@@ -120,8 +123,14 @@ func (r *Rivet) Get(t uint) interface{} {
 		r.MapTo(r.res, id_ResponseWriter)
 		r.MapTo(r.res, id_HttpResponseWriter)
 	}
-
-	return r.val[t]
+	i, ok := r.val[t]
+	if ok {
+		return i
+	}
+	if t == id_MapStringInterface {
+		return r.params
+	}
+	return nil
 }
 
 /**
@@ -150,8 +159,9 @@ func (r *Rivet) MapTo(v interface{}, t uint) {
 }
 
 /**
-Next 遍历调用 handler 函数. handler 函数返回值被忽略.
-如果 handler 不是函数, 使用 Map 关联到 context.
+Next 遍历调用 handler, handler 返回值被忽略.
+如果 handler 不是函数也不含 ServeHTTP 方法, 使用 Map 关联到 context.
+ServeHTTP 只是方法的名字, 支持泛类型, 当然包括 http.Handler.
 如果 ResponseWriter.Written() 为 true, 终止遍历.
 下列 handler 被直接匹配, 参数直接传递, 未用 Get 从 context 获取:
 
@@ -168,6 +178,7 @@ Next 遍历调用 handler 函数. handler 函数返回值被忽略.
 	func(Params, http.ResponseWriter)
 	func(Params, ResponseWriter, *http.Request)
 	func(Params, http.ResponseWriter, *http.Request)
+	http.Handler
 
 Next 最后会执行 ResponseWriter.Flush().
 
@@ -176,7 +187,6 @@ Next 最后会执行 ResponseWriter.Flush().
 	Next 未捕获调用 handler 可能产生的 panic, 需要使用者处理.
 */
 func (c *Rivet) Next() {
-	var v reflect.Value
 	var h interface{}
 
 	for len(c.handler) > 0 {
@@ -189,13 +199,9 @@ func (c *Rivet) Next() {
 		switch fn := h.(type) {
 		default:
 			// 反射调用或者 Map 对象
-
-			v = reflect.ValueOf(h)
-			if v.Kind() != reflect.Func {
-				c.Map(h)
-				continue
-			}
-			c.call(v)
+			c.call(h)
+		case http.Handler:
+			fn.ServeHTTP(c.res, c.req)
 		case func():
 			fn()
 		case func(Context):
@@ -236,13 +242,32 @@ func (c *Rivet) Next() {
 	c.res.Flush()
 }
 
-func (c *Rivet) call(fn reflect.Value) {
+func (c *Rivet) call(h interface{}) {
+
+	fn := reflect.ValueOf(h)
+	if fn.Kind() != reflect.Func {
+		fn = fn.MethodByName("ServeHTTP")
+	}
+
+	if fn.Kind() != reflect.Func {
+		c.Map(h)
+		return
+	}
+
 	t := fn.Type()
 
 	in := make([]reflect.Value, t.NumIn())
+
 	for i := 0; i < len(in); i++ {
 		id := TypeIdOf(t.In(i))
 		val := c.Get(id)
+
+		/** panic ???
+		if val == nil {
+			panic("rivet: value not found of " + t.In(i).String())
+		}
+		//*/
+
 		in[i] = reflect.ValueOf(val)
 	}
 
