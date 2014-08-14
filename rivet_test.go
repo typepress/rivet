@@ -58,7 +58,7 @@ func TestTrie(t *testing.T) {
 
 	for i, path := range routes {
 		recv := catchPanic(func() {
-			child = root.Add(path)
+			child = root.Add(path, nil)
 			child.id = i + 1
 		})
 		if recv != nil {
@@ -67,13 +67,22 @@ func TestTrie(t *testing.T) {
 	}
 
 	for i, path := range routes {
-		_, child := root.Match(path)
+		p := make(Params)
+		child := root.Match(path, p, nil, nil)
 
 		if child == nil {
 			t.Errorf("*trie.Match failed '%s'", path)
 		}
 		if child.id != i+1 {
 			t.Errorf("*trie.Match route is nil'%s'", path)
+		}
+
+		_, keys, _ := parsePattern(path)
+
+		for i := 0; i < len(keys); i++ {
+			if _, ok := p[keys[i]]; !ok {
+				t.Errorf("*trie.Match: incorrect Params:\n %s\n %v\n %#v\n", path, keys, p)
+			}
 		}
 	}
 
@@ -98,7 +107,7 @@ func Test_BadParams(t *testing.T) {
 
 		method, urlPath := badParams[i], badParams[i+2]
 
-		_, node := mux.Match(method, urlPath)
+		node := mux.Match(method, urlPath, nil, nil, nil)
 		if node.Id() != 0 {
 			t.Fatal("want got NotFound, but got ", node.Id(), urlPath)
 		}
@@ -110,10 +119,11 @@ func Test_HasParams(t *testing.T) {
 	for i := 0; i < len(hasParams); i += 3 {
 		mux.Handle(hasParams[i], hasParams[i+1])
 	}
-
+	p := Params{}
 	for i := 0; i < len(hasParams); i += 3 {
+
 		method, urlPath := hasParams[i], hasParams[i+2]
-		p, node := mux.Match(method, urlPath)
+		node := mux.Match(method, urlPath, p, nil, nil)
 		if node.Id() == 0 {
 			t.Fatalf("NotFound : %s", urlPath)
 		}

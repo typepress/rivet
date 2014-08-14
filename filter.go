@@ -1,8 +1,8 @@
 package rivet
 
 import (
+	"net/http"
 	"strconv"
-	"strings"
 )
 
 /**
@@ -21,7 +21,8 @@ FilterClass 保存 Fliter 生成器, 使用者可注册新的生成器.
 	":name string 10" 限制参数字符串字节长度不能超过 10
 */
 var FilterClass = map[string]FilterBuilder{
-	"*":      builtinFilter,
+	"":       builtinFilter, // 只是占位, 实际不被调用
+	"*":      builtinFilter, // 只是占位, 实际不被调用
 	"string": builtinFilter,
 	"alpha":  builtinFilter,
 	"alnum":  builtinFilter,
@@ -30,8 +31,9 @@ var FilterClass = map[string]FilterBuilder{
 }
 
 /**
-NewFilter 通过访问 FilterClass 生成一个 Filter
-如果 class 不存在或者生成 nil 将抛出 panic.
+NewFilter 是缺省的 FilterBuilder.
+通过调用 FilterClass 中 Key 为 class 的 FilterBuilder 生成一个 Filter.
+如果相应的 FilterBuilder 或生成的 Filter 为 nil, 发生 panic.
 */
 func NewFilter(class string, args ...string) Filter {
 	fn := FilterClass[class]
@@ -51,9 +53,12 @@ func builtinFilter(class string, args ...string) Filter {
 		n, _ = strconv.Atoi(args[0])
 	}
 	switch class {
-	case "*":
-		return filterPass(true)
+	case "", "*":
+		return filterTrue
 	case "string":
+		if n == 0 {
+			return filterTrue
+		}
 		return filterString(n)
 	case "alpha":
 		return filterAlpha(n)
@@ -67,25 +72,29 @@ func builtinFilter(class string, args ...string) Filter {
 	return nil
 }
 
-type filterPass bool
+// filterTrue 总是返回 true
+var filterTrue = FilterFunc(
+	func(s string) (interface{}, bool) {
+		return s, true
+	})
+
 type filterString int
 type filterAlpha int
 type filterUint int
 type filterAlnum int
 type filterHex int
 
-func (n filterPass) Filter(s string) (interface{}, bool) {
-	return s, true
-}
+func (n filterString) Filter(s string,
+	_ http.ResponseWriter, _ *http.Request) (interface{}, bool) {
 
-func (n filterString) Filter(s string) (interface{}, bool) {
 	if n != 0 && int(n) < len(s) {
 		return nil, false
 	}
 	return s, len(s) != 0
 }
 
-func (n filterAlpha) Filter(s string) (interface{}, bool) {
+func (n filterAlpha) Filter(s string,
+	_ http.ResponseWriter, _ *http.Request) (interface{}, bool) {
 
 	if n != 0 && int(n) < len(s) {
 		return nil, false
@@ -99,7 +108,8 @@ func (n filterAlpha) Filter(s string) (interface{}, bool) {
 	return s, true
 }
 
-func (n filterUint) Filter(s string) (interface{}, bool) {
+func (n filterUint) Filter(s string,
+	_ http.ResponseWriter, _ *http.Request) (interface{}, bool) {
 
 	i, err := strconv.ParseUint(s, 10, int(n))
 	if err != nil {
@@ -118,7 +128,9 @@ func (n filterUint) Filter(s string) (interface{}, bool) {
 	return uint(i), true
 }
 
-func (n filterAlnum) Filter(s string) (interface{}, bool) {
+func (n filterAlnum) Filter(s string,
+	_ http.ResponseWriter, _ *http.Request) (interface{}, bool) {
+
 	if n != 0 && int(n) < len(s) {
 		return nil, false
 	}
@@ -136,7 +148,8 @@ func (n filterAlnum) Filter(s string) (interface{}, bool) {
 	return s, true
 }
 
-func (n filterHex) Filter(s string) (interface{}, bool) {
+func (n filterHex) Filter(s string,
+	_ http.ResponseWriter, _ *http.Request) (interface{}, bool) {
 	if n != 0 && int(n) < len(s) {
 		return nil, false
 	}
@@ -147,58 +160,4 @@ func (n filterHex) Filter(s string) (interface{}, bool) {
 		}
 	}
 	return s, true
-}
-
-// Node 专用
-type perk struct {
-	filter  Filter
-	name    string // 空值匹配不提取
-	noStyle bool   // 简化匹配
-}
-
-func newPerk(text string) *perk {
-	if text[0] != ':' && text[0] != '*' {
-		panic("rivet: internal error form newFilter : " + text)
-	}
-
-	a := strings.Split(text[1:], " ")
-
-	p := new(perk)
-	p.name = a[0]
-	switch len(a) {
-	case 1:
-		p.noStyle = true
-		if p.name == "" {
-			p.filter = NewFilter("*")
-		} else if p.name == "*" || p.name == ":" { // "/path/to/:pattern/to/**"
-			p.name = "*"
-			p.filter = NewFilter("*")
-		} else {
-			p.filter = NewFilter("string")
-		}
-	case 2:
-		p.filter = NewFilter(a[1])
-	default:
-		p.filter = NewFilter(a[1], a[2:]...)
-	}
-
-	return p
-}
-
-func (p *perk) Perk(text string, params Params) bool {
-	var ok bool
-	var v interface{}
-
-	if p.noStyle {
-		if params != nil && p.name != "" {
-			params[p.name] = text
-		}
-		return true
-	}
-
-	v, ok = p.filter.Filter(text)
-	if ok && params != nil && p.name != "" {
-		params[p.name] = v
-	}
-	return ok
 }

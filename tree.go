@@ -2,7 +2,9 @@ package rivet
 
 import (
 	"fmt"
+	"net/http"
 	"sort"
+	"strings"
 )
 
 func slashCount(path string) (c int) {
@@ -16,47 +18,44 @@ func slashCount(path string) (c int) {
 	return
 }
 
-func parsePattern(path string) (slash int, keys []string, cathAll bool) {
+// Trie 专用
+type perk struct {
+	filter Filter
+	name   string // 空值匹配不提取
+}
 
-	size := len(path)
-	keys = []string{}
-
-	for i := 0; i < size; i++ {
-		switch path[i] {
-		case '/':
-			slash++
-		case ':', '*':
-			if i+1 < size && path[i] == path[i+1] {
-				cathAll = true
-				if i+2 != size {
-					panic("rivet: catch-all must be end of pattern. " + path)
-				}
-				keys = append(keys, "*")
-				break
-			}
-
-			j := i + 1
-			k := 0
-			for ; i < size; i++ {
-				if k == 0 && path[i] == ' ' {
-					k = i
-				}
-				if path[i] == '/' {
-					slash++
-					break
-				}
-			}
-
-			if k == 0 {
-				k = i
-			}
-
-			if path[j:k] != "" {
-				keys = append(keys, path[j:k])
-			}
-		}
+func newPerk(text string, newFilter FilterBuilder) *perk {
+	if text[0] != ':' && text[0] != '*' {
+		panic("rivet: internal error form newFilter : " + text)
 	}
-	return
+
+	a := strings.Split(text[1:], " ")
+
+	p := new(perk)
+	p.name = a[0]
+	switch len(a) {
+	case 1:
+		// 优化处理, 无需建立 Filter
+
+		// "/path/to/:pattern/to/**"
+		if p.name == "*" || p.name == ":" {
+			p.name = "*"
+		}
+	case 2:
+		p.filter = newFilter(a[1])
+	default:
+		p.filter = newFilter(a[1], a[2:]...)
+	}
+
+	return p
+}
+
+func (p *perk) Filter(text string,
+	rw http.ResponseWriter, req *http.Request) (interface{}, bool) {
+	if p.filter == nil {
+		return text, true
+	}
+	return p.filter.Filter(text, rw, req)
 }
 
 /**
@@ -86,6 +85,13 @@ type Trie struct {
 	slash    int // path 中的斜线个数
 	slashMax int // 后续 tree 中的斜线最大个数
 }
+
+type discardParams bool
+
+func (discardParams) ParamsReceiver(key, text string, val interface{}) {
+}
+
+var _discard = discardParams(true)
 
 /**
 NewRootTrie 返回新的根节点 Trie, 已经设置路径为 "/".
@@ -118,7 +124,7 @@ func (t *Trie) SetId(id int) {
 /**
 Match 匹配 url path, 返回匹配到的节点, 和提取到的参数.
 */
-func (t *Trie) Match(path string) (Params, *Trie) {
+func (t *Trie) Match(path string, rec ParamsReceiver, rw http.ResponseWriter, req *http.Request) *Trie {
 
 	var (
 		i, j     int
@@ -126,22 +132,26 @@ func (t *Trie) Match(path string) (Params, *Trie) {
 		c, idx   byte
 		catchAll *Trie
 		all      string
-		params   Params
+		val      interface{}
+		ok       bool
 	)
 
 	if t == nil || len(path) == 0 {
-		return nil, nil
+		return nil
 	}
 
 	// 默认从定值节点匹配
 	if len(t.path) > len(path) {
-		return nil, nil
+		return nil
 	}
 
 	if t.path != path[:len(t.path)] {
-		return nil, nil
+		return nil
 	}
 
+	if rec == nil {
+		rec = _discard
+	}
 	path = path[len(t.path):]
 
 	// 匹配子节点
@@ -153,10 +163,6 @@ WALK:
 
 		if len(t.path) == 0 {
 			// 模式分组
-
-			if params == nil {
-				params = Params{}
-			}
 
 			// path 分段
 			for i = 0; i < len(path); i++ {
@@ -181,8 +187,11 @@ WALK:
 					continue
 				}
 
-				if t.nodes[j].Perk(path[:i], params) {
+				if val, ok = t.nodes[j].Filter(path[:i], rw, req); ok {
 					t = t.nodes[j]
+					if t.name != "" {
+						rec.ParamsReceiver(t.name, path[:i], val)
+					}
 					path = path[i:]
 					break
 				}
@@ -223,14 +232,9 @@ WALK:
 			continue
 		}
 
-		// 模式节点
-		if params == nil {
-			params = Params{}
-		}
-
 		if t.name == "*" {
-			params["*"] = path
-			return params, t
+			rec.ParamsReceiver("*", path, path)
+			return t
 		}
 
 		// path 分段
@@ -240,8 +244,11 @@ WALK:
 			}
 		}
 
-		if !t.Perk(path[:i], params) {
+		if val, ok = t.Filter(path[:i], rw, req); !ok {
 			break
+		}
+		if t.name != "" {
+			rec.ParamsReceiver(t.name, path[:i], val)
 		}
 		path = path[i:]
 	}
@@ -249,7 +256,7 @@ WALK:
 	if len(path) == 0 {
 
 		if t.id != 0 {
-			return params, t
+			return t
 		}
 
 		if len(t.indices) != 0 && t.indices[0] == 0 {
@@ -261,20 +268,17 @@ WALK:
 			}
 
 			if t.id != 0 && t.name == "*" {
-				if params == nil {
-					params = Params{}
-				}
-				params["*"] = ""
-				return params, t
+				rec.ParamsReceiver("*", "", "")
+				return t
 			}
 		}
 	}
 
 	if catchAll == nil || catchAll.id == 0 {
-		return nil, nil
+		return nil
 	}
-	params["*"] = all
-	return params, catchAll
+	rec.ParamsReceiver("*", all, all)
+	return catchAll
 }
 
 /**
@@ -289,14 +293,16 @@ Add 解析 path, 确定叶子节点
 缺陷:
 	此方法暂时只支持 Trie 为根节点.
 */
-func (t *Trie) Add(path string) *Trie {
+func (t *Trie) Add(path string, newFilter FilterBuilder) *Trie {
 	var i, j int
 	var child *Trie
 
 	if t.path != "/" || len(path) == 0 || path[0] != '/' {
 		panic("rivet: Add supported only from root Trie.")
 	}
-
+	if newFilter == nil {
+		newFilter = NewFilter
+	}
 	slashMax := slashCount(path)
 
 	for {
@@ -353,7 +359,7 @@ func (t *Trie) Add(path string) *Trie {
 
 			child = new(Trie)
 			child.path = path[:i]
-			child.perk = newPerk(child.path)
+			child.perk = newPerk(child.path, newFilter)
 			path = path[i:]
 
 			if child.name == "*" {
@@ -504,7 +510,7 @@ func (t *Trie) Add(path string) *Trie {
 
 		child = new(Trie)
 		child.path = path[:i]
-		child.perk = newPerk(child.path)
+		child.perk = newPerk(child.path, newFilter)
 		child.slash = slashCount(child.path)
 		path = path[i:]
 

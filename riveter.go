@@ -67,16 +67,16 @@ type Rivet struct {
 	res     ResponseWriter
 	req     *http.Request
 	params  Params
-	handler []Handler
+	handler []interface{}
 	mapv    bool // 是否已经 Map 相关参数
 }
 
 // NewContext 返回 *Rivet 实现的 Context
-func NewContext(res http.ResponseWriter, req *http.Request, params Params) Context {
+func NewContext(res http.ResponseWriter, req *http.Request) Context {
+
 	c := new(Rivet)
 	c.res = NewResponseWriterFakeFlusher(res)
 	c.req = req
-	c.params = params
 	return c
 }
 
@@ -100,10 +100,18 @@ func (c *Rivet) Params() Params {
 	return c.params
 }
 
-// Handlers 设置 Handler, 第一次使用有效.
-func (c *Rivet) Handlers(h ...Handler) {
+func (c *Rivet) ParamsReceiver(key, text string, val interface{}) {
+
+	if c.params == nil {
+		c.params = make(Params)
+	}
+	c.params[key] = val
+}
+
+// Handlers 设置 handler, 第一次使用有效.
+func (c *Rivet) Handlers(handler ...interface{}) {
 	if c.handler == nil {
-		c.handler = h
+		c.handler = handler
 	}
 }
 
@@ -133,6 +141,26 @@ func (r *Rivet) Get(t uint) interface{} {
 	return nil
 }
 
+func (r *Rivet) get(t uint) (interface{}, bool) {
+
+	if !r.mapv {
+		r.mapv = true
+		r.MapTo(r.params, id_Params)
+		r.MapTo(r, id_Context)
+		r.MapTo(r.req, id_httpRequest)
+		r.MapTo(r.res, id_ResponseWriter)
+		r.MapTo(r.res, id_HttpResponseWriter)
+	}
+	i, ok := r.val[t]
+	if ok {
+		return i, true
+	}
+	if t == id_MapStringInterface {
+		return r.params, true
+	}
+	return nil, false
+}
+
 /**
 Map 等同 MapTo(v, TypeIdOf(v)). 以 v 的类型标识为 key.
 Rivet 自动 Map 的变量类型有:
@@ -153,17 +181,48 @@ MapTo 以 t 为 key 把变量 v 关联到 context. 相同 t 值只保留一个.
 */
 func (r *Rivet) MapTo(v interface{}, t uint) {
 	if r.val == nil {
-		r.val = map[uint]interface{}{}
+		r.val = make(map[uint]interface{})
 	}
 	r.val[t] = v
 }
 
 /**
-Next 遍历调用 handler, handler 返回值被忽略.
-如果 handler 不是函数也不含 ServeHTTP 方法, 使用 Map 关联到 context.
-ServeHTTP 只是方法的名字, 支持泛类型, 当然包括 http.Handler.
+Next 遍历 Handlers 保存的 handler, 通过 Invoke 调用.
 如果 ResponseWriter.Written() 为 true, 终止遍历.
-下列 handler 被直接匹配, 参数直接传递, 未用 Get 从 context 获取:
+Next 最后会调用 ResponseWriter.Flush().
+*/
+func (c *Rivet) Next() {
+
+	var h interface{}
+	for {
+		if len(c.handler) == 0 || c.res.Written() {
+			break
+		}
+		h = c.handler[0]
+		c.handler = c.handler[1:]
+		c.Invoke(h)
+	}
+
+	c.res.Flush()
+	c.handler = nil
+}
+
+/**
+Invoke 处理 handler.
+
+参数:
+	handler 可以是任意值
+		如果 handler 可被调用, 准备相应参数, 并调用 handler.
+		否则 使用 Map 关联到 context.
+返回:
+	如果 handler 可被调用, 但是无法获取其参数, 返回 false.
+	否则返回 true.
+
+算法:
+	如果 handler 是函数或者是有 ServeHTTP 方法的对象, 准备参数并调用.
+	否则使用 Map 关联到 context.
+	ServeHTTP 支持泛类型, 当然包括 http.Handler 实例.
+	下列 handler 类型使用 switch 匹配, 参数直接传递, 未用 Get 从 context 获取:
 
 	func()
 	func(Context)
@@ -180,101 +239,80 @@ ServeHTTP 只是方法的名字, 支持泛类型, 当然包括 http.Handler.
 	func(Params, http.ResponseWriter, *http.Request)
 	http.Handler
 
-Next 最后会执行 ResponseWriter.Flush().
-
 注意:
-	Next 对于没有进行 Map 的类型, 用 nil 替代.
-	Next 未捕获调用 handler 可能产生的 panic, 需要使用者处理.
+	Invoke 未捕获可能产生的 panic, 需要使用者处理.
 */
-func (c *Rivet) Next() {
-	var h interface{}
+func (c *Rivet) Invoke(handler interface{}) bool {
 
-	for len(c.handler) > 0 {
-		if c.res.Written() {
-			break
-		}
-		h = c.handler[0]
-		c.handler = c.handler[1:]
+	switch fn := handler.(type) {
+	default:
 
-		switch fn := h.(type) {
-		default:
-			// 反射调用或者 Map 对象
-			c.call(h)
-		case http.Handler:
-			fn.ServeHTTP(c.res, c.req)
-		case func():
-			fn()
-		case func(Context):
-			fn(c)
-
-		case func(ResponseWriter):
-			fn(c.res)
-		case func(http.ResponseWriter):
-			fn(c.res)
-		case func(*http.Request):
-			fn(c.req)
-
-		case func(ResponseWriter, *http.Request):
-			fn(c.res, c.req)
-		case func(http.ResponseWriter, *http.Request):
-			fn(c.res, c.req)
-
-		case func(Params):
-			fn(c.params)
-
-		case func(Params, ResponseWriter, *http.Request):
-			fn(c.params, c.res, c.req)
-		case func(Params, http.ResponseWriter, *http.Request):
-			fn(c.params, c.res, c.req)
-
-		case func(Params, ResponseWriter):
-			fn(c.params, c.res)
-
-		case func(Params, http.ResponseWriter):
-			fn(c.params, c.res)
-
-		case func(Params, *http.Request):
-			fn(c.params, c.req)
+		// 反射调用或者 Map 对象
+		fun := reflect.ValueOf(handler)
+		if fun.Kind() != reflect.Func {
+			fun = fun.MethodByName("ServeHTTP")
 		}
 
-	}
-
-	c.res.Flush()
-}
-
-func (c *Rivet) call(h interface{}) {
-
-	fn := reflect.ValueOf(h)
-	if fn.Kind() != reflect.Func {
-		fn = fn.MethodByName("ServeHTTP")
-	}
-
-	if fn.Kind() != reflect.Func {
-		c.Map(h)
-		return
-	}
-
-	t := fn.Type()
-
-	in := make([]reflect.Value, t.NumIn())
-
-	for i := 0; i < len(in); i++ {
-		id := TypeIdOf(t.In(i))
-		val := c.Get(id)
-
-		/** panic ???
-		if val == nil {
-			panic("rivet: value not found of " + t.In(i).String())
+		if fun.Kind() != reflect.Func {
+			c.Map(handler)
+			return true
 		}
-		//*/
 
-		in[i] = reflect.ValueOf(val)
+		t := fun.Type()
+
+		in := make([]reflect.Value, t.NumIn())
+
+		for i := 0; i < len(in); i++ {
+
+			val, ok := c.get(TypeIdOf(t.In(i)))
+			if !ok {
+				return false
+			}
+			in[i] = reflect.ValueOf(val)
+		}
+
+		if t.IsVariadic() {
+			fun.CallSlice(in)
+		} else {
+			fun.Call(in)
+		}
+
+	case http.Handler:
+		fn.ServeHTTP(c.res, c.req)
+
+	case func():
+		fn()
+	case func(Context):
+		fn(c)
+
+	case func(ResponseWriter):
+		fn(c.res)
+	case func(http.ResponseWriter):
+		fn(c.res)
+	case func(*http.Request):
+		fn(c.req)
+
+	case func(ResponseWriter, *http.Request):
+		fn(c.res, c.req)
+	case func(http.ResponseWriter, *http.Request):
+		fn(c.res, c.req)
+
+	case func(Params):
+		fn(c.params)
+
+	case func(Params, ResponseWriter, *http.Request):
+		fn(c.params, c.res, c.req)
+	case func(Params, http.ResponseWriter, *http.Request):
+		fn(c.params, c.res, c.req)
+
+	case func(Params, ResponseWriter):
+		fn(c.params, c.res)
+
+	case func(Params, http.ResponseWriter):
+		fn(c.params, c.res)
+
+	case func(Params, *http.Request):
+		fn(c.params, c.req)
 	}
-
-	if t.IsVariadic() {
-		fn.CallSlice(in)
-	} else {
-		fn.Call(in)
-	}
-
+	return true
 }
