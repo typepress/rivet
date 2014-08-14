@@ -430,7 +430,6 @@ Copyright (c) 2014 The TypePress Authors. All rights reserved.
 Use of this source code is governed by a BSD-style
 license that can be found in the LICENSE file.
 
-[https://gowalker.org/github.com/typepress/rivet#Node]: 
 
 [Node]: https://gowalker.org/github.com/typepress/rivet#Node
 [Filter]: https://gowalker.org/github.com/typepress/rivet#Filter
