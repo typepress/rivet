@@ -213,14 +213,14 @@ func main() {
 
 解耦可以让应用切入到 Rivet 执行路由流程中的每一个环节, 达到高度定制. Rivet 在不失性能的前提下, 对解耦做了很多努力. 了解下列 Rivet 的设计接口有助于定制您自己的路由规则.
 
-* [Params][Params] 保存 URL.Path 中的参数
-* [Filter][Filter] 检查/转换 URL.Path 参数, 亦可过滤请求.
-* [Node][Node] 保存 handler, 二次过滤 Params, 每个 Node 都拥唯一 id.
+* [Params][] 保存 URL.Path 中的参数
+* [Filter][] 检查/转换 URL.Path 参数, 亦可过滤请求.
+* [Node][] 保存 handler, 二次过滤 Params, 每个 Node 都拥唯一 id.
     二次过滤很重要, 路由匹配过程中可能发生回溯, 会产生一些多余参数.
-* [Trie][Trie] 匹配 URL.Path, 调用 Filter, 调用 Params 生成器.
+* [Trie][] 匹配 URL.Path, 调用 Filter, 调用 Params 生成器.
     匹配到的 Trie.id 和 Node.id 是对应的.
-* [Context][Context] 维护上下文, 处理 handler. 内置 Rivet 实现了它.
-* [Router][Router] 路由管理器, 把上述对象联系起来, 完成路由功能.
+* [Context][] 维护上下文, 处理 handler. 内置 Rivet 实现了它.
+* [Router][] 路由管理器, 把上述对象联系起来, 完成路由功能.
 
 他们是如何解耦的:
 
@@ -262,24 +262,37 @@ func MyRiveter(rw http.ResponseWriter, req *http.Request) rivet.Context {
 
 rivet 内置的 ResponseWriteFakeFlusher 是个伪 http.Flusher, 只是有个 Flus() 方法, 并没有真的实现 http.Flusher 功能. 如果您需要真正的 Flusher 需要自己实现.
 
-扩展内置 Rivet 实现自己的 Context 很容易, 善用 Next 和 Invoke 方法即可.
+实现自己的 Context 很容易, 善用 Next 和 Invoke 方法即可.
 
 举例:
 
 ```go
 /**
-扩展 Rivet, 实现 Before.
+扩展 Context, 实现 Before.
 */
-type MyRivet struct {
-    *rivet.Rivet
+type MyContext struct {
+    rivet.Context
     beforeIsRun true
 }
 
-func (c *MyRivet) Next() {
+/**
+MyContext 生成器
+使用:
+    reivt.Router(MyRiveter)
+*/
+func MyRiveter(res http.ResponseWriter, req *http.Request) rivet.Context {
+    c := new(MyContext)
+    c.Context = rivet.NewContext(res, req)
+    return c
+}
+
+func (c *MyContext) Next() {
     if !beforeIsRun {
         // 执行 Before 处理
+        // do something
+        beforeIsRun = true
     }
-    c.Rivet.Next()
+    c.Context.Next()
 }
 
 // 观察者模式
@@ -287,14 +300,17 @@ func Observer(c rivet.Context) {
     defer func() {
         if err := recover(); err != nil {
             // 捕获 panic
+            // do something
             return
         }
         // 其他操作, 比如写日志, 统计执行时间等等
+        // do something
     }()
     c.Next()
 }
 
 /**
+MyInvoke 是个 Handler, 执行时可以调用 Context.Invoke. 例如:
 插入执行 SendStaticFile, 这和直接调用 SendStaticFile 不同.
 这样的 SendStaticFile 可以使用上下文关联变量
 */
@@ -303,14 +319,12 @@ func MyInvoke(c rivet.Context) {
 }
 
 /**
-发送静态文件, root 是实现根据上下文环境, 关联好的.
+发送静态文件, 参数 root 是前期执行的某个 Handler 关联好的.
 现实中简单的改写 req.URL.Path, 无需 root 参数也是可行的.
-但是那样的话, MyInvoke 就需要负责判断上下文环境了.
 */
 func SendStaticFile(root http.Dir, rw http.ResponseWriter, req *http.Request) {
-    // ...
+    // send ...
 }
-
 
 ```
 
@@ -318,9 +332,9 @@ func SendStaticFile(root http.Dir, rw http.ResponseWriter, req *http.Request) {
 路由风格
 ========
 
-Rivet 对路由 pattern 的支持很丰富, 我们从最简单的形式开始.
-示例:
+Rivet 对路由 pattern 的支持很丰富.
 
+示例:
 ```
 "/news/:cat"
 ```
@@ -342,24 +356,26 @@ Rivet 对路由 pattern 的支持很丰富, 我们从最简单的形式开始.
 "/news/health/1024"
 ```
 
-当然您可以把这两天路由 pattern 都注册到 Router, 它们会被正确匹配.
-上面的路由是无过滤参数的. 路由也可以带过滤参数.
+当然您可以把这两条路由都注册到 Router, 它们会被正确匹配.
+上面的路由只有参数名, 数据类型都是 string. Rivet 还支持带类型的 pattern.
 
 示例:
 ```
 "/news/:cat/:id uint"
 ```
 
-uint 是内置的过滤 class, 这样 id 必须是 uint 字符串, 才能匹配成功.
+uint 是内置的 class, 参见 [FilterClass][].
 
-路由风格形式:
+":id uint" 表示参数名是 "id", 数据必须是 uint 字符串.
+
+路由风格:
 
 ```
 "/path/to/prefix:pattern/:pattern/:"
 ```
 
 其中 "path", "to","prefix" 是占位符, 表示固定字符, 称为定值.
-":pattern" 表示匹配模式, 形式为:
+":pattern" 表示匹配模式, 格式为:
 
 ```
 :name class arg1 arg2 argN
@@ -367,16 +383,16 @@ uint 是内置的过滤 class, 这样 id 必须是 uint 字符串, 才能匹配�
     以 ":" 开始, 以 " " 作为分隔符.
     第一段是参数名, 第二段是类型名, 后续为参数.
     
-    示例: :cat string 6:
+    示例: ":cat string 6"
 
     cat
         为参数名, 如果省略只验证不提取参数, 形如 ": string 6"
     string
         为类型名, 可以自定义 class 注册到 FilterClass 变量.
     6
-        为参数, 所有内建类型可以设置一个限制长度参数, 最大值 255. 例如
-        ":name string 6"
-        ":name int 9"
+        为长度参数, 可以设置一个限制长度参数. 例如
+        ":name string 5"
+        ":name uint 9"
         ":name hex 32"
 
 :name class
@@ -384,7 +400,7 @@ uint 是内置的过滤 class, 这样 id 必须是 uint 字符串, 才能匹配�
 
 :name
     提取参数, 不对值进行合法检查, 值不能为空.
-    如果允许空值使用 ":name *". "*" 是个 class, 允许空值.
+    如果允许空值要使用 ":name *". "*" 是个 class, 允许空值.
 
 :
     不提取参数, 不检查值, 允许空值, 等同于 ": *".
@@ -393,11 +409,11 @@ uint 是内置的过滤 class, 这样 id 必须是 uint 字符串, 才能匹配�
     例如:
         "/path/to/::"
     可匹配:
-        "/path/to/",          "*" 为名, 值为 "".
-        "/path/to/paths",     "*" 为名, 值为 "paths".
-        "/path/to/path/path", "*" 为名, 值为 "path/path".
+        "/path/to/",          "*" 为参数名, 值为 "".
+        "/path/to/paths",     "*" 为参数名, 值为 "paths".
+        "/path/to/path/path", "*" 为参数名, 值为 "path/path".
 *
-    "*" 可替代 ":" 作为开始定界符, 某些情况 "*" 更符合常规思维, 如:
+    "*" 可替代 ":" 作为开始定界符, 某些情况 "*" 更符合习惯, 如:
     "/path/to*"
     "/path/to/**"
 ```
@@ -413,6 +429,55 @@ Rivet 在路由匹配上做了很多工作, 支持下列路由同时存在, 并�
 ```
 
 即便如此, 还会有这些路不能并存.
+
+Scene
+=====
+
+路由风格支持类型, Filter 检查时可能需要对数据进行类型转换, interface{} 方便保存转换后的结果, 避免后续代码再次转换, 所以 Params 定义成这样:
+
+```go
+type Params map[string]interface{}
+```
+
+一些应用场景无转换需求, 只需要简单定义:
+
+```go
+type PathParams map[string]string
+```
+
+是的, 这种场景也很普遍. [Scene][] 就是为此准备的 Context.
+
+Scene 的使用很简单:
+```go
+package main
+
+import (
+    "io"
+    "net/http"
+
+    "github.com/typepress/rivet"
+)
+
+/**
+带 PathParams 参数的 handler
+params 是从 URL.Path 中提取到的参数
+*/
+func Hi(params rivet.PathParams, rw http.ResponsWriter) {
+    io.WriteString(rw, "Hi "+params["who"])
+}
+
+func main() {
+    
+    // 传递 NewScene, handler 可以采用 PathParams 风格
+    mux := rivet.NewRouter(rivet.NewScene)
+
+    mux.Get("/:who", Hi) // 参数名设定为 "who"
+    
+    http.ListenAndServe(":3000", mux) 
+}
+```
+
+注意 PathParams 只能和 NewScene 配套使用. 事实上 Context 采用的是 All-In-One 的设计方式, 实现有可能未完成所有接口, 使用方式对应变更即可.
 
 
 Acknowledgements
@@ -437,3 +502,7 @@ license that can be found in the LICENSE file.
 [Trie]: https://gowalker.org/github.com/typepress/rivet#Trie
 [Context]: https://gowalker.org/github.com/typepress/rivet#Context
 [Router]: https://gowalker.org/github.com/typepress/rivet#Router
+[Scene]: https://gowalker.org/github.com/typepress/rivet#Scene
+[Rivet.Get]: https://gowalker.org/github.com/typepress/rivet#Rivet_Get
+[Rivet.Invoke]: https://gowalker.org/github.com/typepress/rivet#Rivet_Invoke
+[FilterClass]: https://gowalker.org/github.com/typepress/rivet#_variables

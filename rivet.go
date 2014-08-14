@@ -31,6 +31,22 @@ func (p Params) ParamsReceiver(key, text string, val interface{}) {
 }
 
 /**
+PathParams 存储原始的 URL.Path 参数.
+与 Scene/NewScene 配套使用.
+*/
+type PathParams map[string]string
+
+// Get 返回 key 对应值
+func (p PathParams) Get(key string) string {
+	return p[key]
+}
+
+// PathParams 符合 ParamsReceiver 接口
+func (p PathParams) ParamsReceiver(key, text string, val interface{}) {
+	p[key] = text
+}
+
+/**
 ParamsReceiver 接收 URL.Path 参数.
 路由匹配过程中, 当提取到参数时, 会调用参数接收函数.
 事实上实例函数作为参数传递给 Trie.Match, 由 Trie.Match 调用.
@@ -103,6 +119,8 @@ type Riveter func(http.ResponseWriter, *http.Request) Context
 
 /**
 Context 关联变量到 Request 上下文, 并调用 Handler.
+事实上 Context 采用的是 All-In-One 的设计方式.
+实现有可能未完成所有接口.
 */
 type Context interface {
 	// Context 要实现参数接收器
@@ -116,8 +134,14 @@ type Context interface {
 	// WriteString 方便向 http.ResponseWriter 写入 string.
 	WriteString(data string) (int, error)
 
-	//	Params 返回路由匹配时从 URL.Path 中提取的参数
-	Params() Params
+	//	GetParams 返回路由匹配时从 URL.Path 中提取的参数
+	GetParams() Params
+
+	/**
+	PathParams 返回路由匹配时从 URL.Path 中提取的参数
+	PathParams 需要与 Scene/NewScene 配套使用.
+	*/
+	GetPathParams() PathParams
 
 	// Handlers 设置 Handler, 通常这只能使用一次
 	Handlers(handler ...interface{})

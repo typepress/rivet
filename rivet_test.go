@@ -213,3 +213,66 @@ func catchPanic(testFunc func()) (recv interface{}) {
 	testFunc()
 	return
 }
+
+func Test_Context(t *testing.T) {
+	mux := NewRouter(nil)
+
+	mux.Get("/:name", func(p Params) {
+		if p.Get("name") != "PathParams" {
+			t.Fatal(p)
+		}
+	})
+
+	mux.Get("/map/:name", func(p map[string]interface{}) {
+		if p["name"].(string) != "PathParams" {
+			t.Fatal(p)
+		}
+	})
+
+	req, _ := http.NewRequest("GET", "/PathParams", nil)
+	mux.ServeHTTP(nil, req)
+	req, _ = http.NewRequest("GET", "/map/PathParams", nil)
+	mux.ServeHTTP(nil, req)
+}
+
+func Test_Scene(t *testing.T) {
+	mux := NewRouter(NewScene)
+
+	mux.Get("/:name", func(p PathParams) {
+		if p["name"] != "PathParams" {
+			t.Fatal(p)
+		}
+	})
+
+	mux.Get("/map/:name", func(p map[string]string) {
+		if p["name"] != "PathParams" {
+			t.Fatal(p)
+		}
+	})
+
+	req, _ := http.NewRequest("GET", "/PathParams", nil)
+	mux.ServeHTTP(nil, req)
+	req, _ = http.NewRequest("GET", "/map/PathParams", nil)
+	mux.ServeHTTP(nil, req)
+}
+
+func Test_Invoke(t *testing.T) {
+	result := ""
+	invoke := func(c Context) {
+		result = c.Get(TypeIdOf("")).(string)
+	}
+
+	mux := NewRouter(nil)
+
+	mux.Get("/", func(c Context) {
+		c.Map("Invoke")
+	}, func(c Context) {
+		c.Invoke(invoke)
+	})
+
+	req, _ := http.NewRequest("GET", "/", nil)
+	mux.ServeHTTP(nil, req)
+	if result != "Invoke" {
+		t.Fatalf("want `Invoke`, bug got ", result)
+	}
+}

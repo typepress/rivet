@@ -52,6 +52,7 @@ func (n *node) Handlers(handler ...interface{}) {
 func (n *node) Apply(c Context) {
 
 	var params Params
+	var pparams PathParams
 
 	if n == nil {
 
@@ -64,16 +65,36 @@ func (n *node) Apply(c Context) {
 			req.Method + " \"" + req.Host + req.URL.Path + "\"")
 	}
 
-	params = c.Params()
+	if n.keys != nil {
 
-	if n.keys != nil && len(params) != len(n.keys) {
+		params = c.GetParams()
+		if params != nil {
 
-		clear := len(n.keys) == 0
-		for k, _ := range params {
+			if len(params) > len(n.keys) {
 
-			if clear || !n.keys[k] {
-				delete(params, k)
+				clear := len(n.keys) == 0
+				for k, _ := range params {
+
+					if clear || !n.keys[k] {
+						delete(params, k)
+					}
+				}
 			}
+		} else {
+
+			pparams = c.GetPathParams()
+
+			if len(pparams) > len(n.keys) {
+
+				clear := len(n.keys) == 0
+				for k, _ := range pparams {
+
+					if clear || !n.keys[k] {
+						delete(pparams, k)
+					}
+				}
+			}
+
 		}
 	}
 

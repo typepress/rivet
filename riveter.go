@@ -11,8 +11,10 @@ var (
 	id_HttpResponseWriter = TypeIdOf((*ResponseWriter)(nil))
 	id_ResponseWriter     = TypeIdOf((*http.ResponseWriter)(nil))
 	id_Context            = TypeIdOf((*Context)(nil))
-	id_Params             = TypeIdOf(Params{})
-	id_MapStringInterface = TypeIdOf(map[string]interface{}{})
+	id_Params             = TypeIdOf(Params(nil))
+	id_MapStringInterface = TypeIdOf(map[string]interface{}(nil))
+	id_PathParams         = TypeIdOf(PathParams(nil))
+	id_MapStringString    = TypeIdOf(map[string]string(nil))
 )
 
 /**
@@ -63,10 +65,11 @@ func TypeIdOf(v interface{}) uint {
 Rivet 符合 Context 接口. 您应该用 NewContext 生成实例.
 */
 type Rivet struct {
+	Params
+	PathParams
 	val     map[uint]interface{}
 	res     ResponseWriter
 	req     *http.Request
-	params  Params
 	handler []interface{}
 	mapv    bool // 是否已经 Map 相关参数
 }
@@ -95,17 +98,25 @@ func (c *Rivet) WriteString(data string) (int, error) {
 	return io.WriteString(c.res, data)
 }
 
-//	Params 返回路由匹配时从 URL.Path 中提取的参数
-func (c *Rivet) Params() Params {
-	return c.params
+//	GetParams 返回路由匹配时从 URL.Path 中提取的参数
+func (c *Rivet) GetParams() Params {
+	return c.Params
+}
+
+/**
+PathParams 返回由 Scene 接受的参数.
+此方法与 Scene 配套.
+*/
+func (c *Rivet) GetPathParams() PathParams {
+	return c.PathParams
 }
 
 func (c *Rivet) ParamsReceiver(key, text string, val interface{}) {
 
-	if c.params == nil {
-		c.params = make(Params)
+	if c.Params == nil {
+		c.Params = make(Params, 1)
 	}
-	c.params[key] = val
+	c.Params[key] = val
 }
 
 // Handlers 设置 handler, 第一次使用有效.
@@ -117,47 +128,43 @@ func (c *Rivet) Handlers(handler ...interface{}) {
 
 /**
 Get 以类型标识 t 为 key, 获取关联到 context 的变量.
-如果未找到, 返回 nil.
-特别的如果函数参数用了 map[string]interface{}, 且 Get 为 nil, 用 Params 代替.
-这样做, 如果不用 Map 功能, 所写的 Handler 就不需要 import rivet.
-*/
-func (r *Rivet) Get(t uint) interface{} {
+如果未找到, 通常返回 nil, 特别的:
 
-	if !r.mapv {
-		r.mapv = true
-		r.MapTo(r.params, id_Params)
-		r.MapTo(r, id_Context)
-		r.MapTo(r.req, id_httpRequest)
-		r.MapTo(r.res, id_ResponseWriter)
-		r.MapTo(r.res, id_HttpResponseWriter)
-	}
-	i, ok := r.val[t]
-	if ok {
-		return i
-	}
-	if t == id_MapStringInterface {
-		return r.params
-	}
-	return nil
+	如果 t 标识 map[string]interface{}, 用 Params 标识再试一次.
+	如果 t 标识 map[string]string, 用 PathParams 标识再试一次.
+
+这样做, 如果不用 Map 功能, 所写的 Handler 就不需要 import "rivet".
+*/
+func (r *Rivet) Get(t uint) (v interface{}) {
+	v, _ = r.get(t)
+	return
 }
 
 func (r *Rivet) get(t uint) (interface{}, bool) {
 
 	if !r.mapv {
 		r.mapv = true
-		r.MapTo(r.params, id_Params)
+		r.MapTo(r.Params, id_Params)
+		r.MapTo(r.PathParams, id_PathParams)
 		r.MapTo(r, id_Context)
 		r.MapTo(r.req, id_httpRequest)
 		r.MapTo(r.res, id_ResponseWriter)
 		r.MapTo(r.res, id_HttpResponseWriter)
 	}
+
 	i, ok := r.val[t]
 	if ok {
 		return i, true
 	}
+
 	if t == id_MapStringInterface {
-		return r.params, true
+		return r.Params, true
 	}
+
+	if t == id_MapStringString {
+		return r.PathParams, true
+	}
+
 	return nil, false
 }
 
@@ -181,7 +188,7 @@ MapTo 以 t 为 key 把变量 v 关联到 context. 相同 t 值只保留一个.
 */
 func (r *Rivet) MapTo(v interface{}, t uint) {
 	if r.val == nil {
-		r.val = make(map[uint]interface{})
+		r.val = make(map[uint]interface{}, 1)
 	}
 	r.val[t] = v
 }
@@ -237,6 +244,14 @@ Invoke 处理 handler.
 	func(Params, http.ResponseWriter)
 	func(Params, ResponseWriter, *http.Request)
 	func(Params, http.ResponseWriter, *http.Request)
+
+	特别增加 PathParams/Scene 支持.
+	func(PathParams)
+	func(PathParams, *http.Request)
+	func(PathParams, ResponseWriter)
+	func(PathParams, http.ResponseWriter)
+	func(PathParams, ResponseWriter, *http.Request)
+	func(PathParams, http.ResponseWriter, *http.Request)
 	http.Handler
 
 注意:
@@ -298,21 +313,58 @@ func (c *Rivet) Invoke(handler interface{}) bool {
 		fn(c.res, c.req)
 
 	case func(Params):
-		fn(c.params)
+		fn(c.Params)
 
 	case func(Params, ResponseWriter, *http.Request):
-		fn(c.params, c.res, c.req)
+		fn(c.Params, c.res, c.req)
 	case func(Params, http.ResponseWriter, *http.Request):
-		fn(c.params, c.res, c.req)
+		fn(c.Params, c.res, c.req)
 
 	case func(Params, ResponseWriter):
-		fn(c.params, c.res)
+		fn(c.Params, c.res)
 
 	case func(Params, http.ResponseWriter):
-		fn(c.params, c.res)
+		fn(c.Params, c.res)
 
 	case func(Params, *http.Request):
-		fn(c.params, c.req)
+		fn(c.Params, c.req)
+
+	// PathParams
+	case func(PathParams):
+		fn(c.PathParams)
+
+	case func(PathParams, ResponseWriter, *http.Request):
+		fn(c.PathParams, c.res, c.req)
+	case func(PathParams, http.ResponseWriter, *http.Request):
+		fn(c.PathParams, c.res, c.req)
+
+	case func(PathParams, ResponseWriter):
+		fn(c.PathParams, c.res)
+
+	case func(PathParams, http.ResponseWriter):
+		fn(c.PathParams, c.res)
+
+	case func(PathParams, *http.Request):
+		fn(c.PathParams, c.req)
 	}
 	return true
+}
+
+/**
+Scene 支持以 PathParams 类型为参数的 Handler.
+*/
+type Scene struct {
+	*Rivet
+}
+
+// NewScene 返回 Scene 实现的 Context
+func NewScene(res http.ResponseWriter, req *http.Request) Context {
+	return Scene{NewContext(res, req).(*Rivet)}
+}
+
+func (c Scene) ParamsReceiver(key, text string, val interface{}) {
+	if c.PathParams == nil {
+		c.PathParams = make(PathParams, 1)
+	}
+	c.PathParams[key] = text
 }
