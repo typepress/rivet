@@ -434,3 +434,7 @@ license that can be found in the LICENSE file.
 
 [Node]: https://gowalker.org/github.com/typepress/rivet#Node
 [Filter]: https://gowalker.org/github.com/typepress/rivet#Filter
+[Params]: https://gowalker.org/github.com/typepress/rivet#Params
+[Trie]: https://gowalker.org/github.com/typepress/rivet#Trie
+[Context]: https://gowalker.org/github.com/typepress/rivet#Context
+[Router]: https://gowalker.org/github.com/typepress/rivet#Router
