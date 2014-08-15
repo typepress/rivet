@@ -111,13 +111,36 @@ func (c *Rivet) GetPathParams() PathParams {
 	return c.PathParams
 }
 
-func (c *Rivet) ParamsReceiver(key, text string, val interface{}) {
+// ParamsReceiver 逐个接受路由匹配提取到的参数.
+func (c *Rivet) ParamsReceiver(name, text string, val interface{}) {
 
 	if c.Params == nil {
 		c.Params = make(Params, 1)
 	}
-	c.Params[key] = val
+	c.Params[name] = val
 }
+
+/**
+// ParamsNames 接收合法的参数名
+func (c *Rivet) ParamsNames(names map[string]bool) {
+
+	if c.Params != nil {
+
+		c.Params.ParamsNames(names)
+		return
+	}
+
+	if c.PathParams != nil {
+
+		c.PathParams.ParamsNames(names)
+		return
+	}
+
+	if len(names) != 0 {
+		panic("rivet: the received parameter is not sufficient.")
+	}
+}
+*/
 
 // Handlers 设置 handler, 第一次使用有效.
 func (c *Rivet) Handlers(handler ...interface{}) {

@@ -7,6 +7,56 @@ import (
 	"strings"
 )
 
+func analyzePath(path string) (c int, names map[string]bool) {
+
+	size := len(path)
+	for i := 0; i < size; i++ {
+		if path[i] != ':' && path[i] != '*' {
+
+			if path[i] == '/' {
+				c++
+			}
+
+			continue
+		}
+
+		if i+1 < size && path[i] == path[i+1] {
+			if names == nil {
+				names = make(map[string]bool)
+			}
+			names["*"] = true
+			break
+		}
+
+		j := i + 1
+		k := 0
+
+		for ; i < size; i++ {
+			if path[i] == ' ' {
+				k = i
+				break
+			}
+			if path[i] == '/' {
+				c++
+				k = i
+				break
+			}
+		}
+
+		if k == 0 {
+			k = i
+		}
+
+		if path[j:k] != "" {
+			if names == nil {
+				names = make(map[string]bool)
+			}
+			names[path[j:k]] = true
+		}
+	}
+	return
+}
+
 func slashCount(path string) (c int) {
 	size := len(path)
 	for i := 0; i < size; i++ {
@@ -59,6 +109,18 @@ func (p *perk) Filter(text string,
 }
 
 /**
+discardParams 替代 ParamsReceiver 为 nil 的情况
+*/
+type discardParams bool
+
+func (discardParams) ParamsReceiver(key, text string, val interface{}) {
+}
+
+func (discardParams) ParamsNames(map[string]bool) {}
+
+var _discard = discardParams(true)
+
+/**
 Trie 不直接管理路由, 通过用户可设置字段 Id 组织管理 URL path.
 用户通过字段 Id 自己维护路由, 0 值表示非路由节点.
 NewRootTrie 已经已经设置好根节点, 因此节点总是已经设置好.
@@ -78,20 +140,15 @@ NewRootTrie 已经已经设置好根节点, 因此节点总是已经设置好.
 */
 type Trie struct {
 	*perk
-	id       int // 用户数据标识, 0 表示非路由节点
+	path     string
+	names    map[string]bool // 参数名
 	nodes    []*Trie
 	indices  []byte
-	path     string
-	slash    int // path 中的斜线个数
-	slashMax int // 后续 tree 中的斜线最大个数
+	id       int  // 用户数据标识, 0 表示非路由节点
+	slash    int  // path 中的斜线个数
+	slashMax int  // 后续 tree 中的斜线最大个数
+	catchAll bool // "/**"
 }
-
-type discardParams bool
-
-func (discardParams) ParamsReceiver(key, text string, val interface{}) {
-}
-
-var _discard = discardParams(true)
 
 /**
 NewRootTrie 返回新的根节点 Trie, 已经设置路径为 "/".
@@ -183,8 +240,13 @@ WALK:
 
 			for j = len(t.nodes) - 1; j >= 0; j-- {
 
-				if j != 0 && t.nodes[j].slashMax < slashMax {
-					continue
+				if j != 0 {
+					if t.nodes[j].slashMax > slashMax {
+						continue
+					}
+					if !t.nodes[j].catchAll && t.nodes[j].slashMax < slashMax {
+						continue
+					}
 				}
 
 				if val, ok = t.nodes[j].Filter(path[:i], rw, req); ok {
@@ -197,12 +259,15 @@ WALK:
 				}
 			}
 
+			// 未匹配或者匹配完成
 			if j < 0 || len(path) == 0 {
 				break
 			}
+			// 匹配的仍然是模式分组
 			if len(t.path) == 0 {
 				continue
 			}
+			// 继续匹配
 		}
 
 		// 子节点, 按照索引匹配, 能匹配上的一定是定值节点
@@ -234,7 +299,8 @@ WALK:
 
 		if t.name == "*" {
 			rec.ParamsReceiver("*", path, path)
-			return t
+			path = ""
+			break
 		}
 
 		// path 分段
@@ -256,6 +322,7 @@ WALK:
 	if len(path) == 0 {
 
 		if t.id != 0 {
+			//rec.ParamsNames(t.names)
 			return t
 		}
 
@@ -269,6 +336,7 @@ WALK:
 
 			if t.id != 0 && t.name == "*" {
 				rec.ParamsReceiver("*", "", "")
+				//rec.ParamsNames(t.names)
 				return t
 			}
 		}
@@ -278,6 +346,7 @@ WALK:
 		return nil
 	}
 	rec.ParamsReceiver("*", all, all)
+	//rec.ParamsNames(catchAll.names)
 	return catchAll
 }
 
@@ -303,7 +372,12 @@ func (t *Trie) Add(path string, newFilter FilterBuilder) *Trie {
 	if newFilter == nil {
 		newFilter = NewFilter
 	}
-	slashMax := slashCount(path)
+
+	slashMax, names := analyzePath(path)
+
+	catchAll := names["*"]
+	catchAllOld := t.catchAll
+	t.catchAll = t.catchAll || catchAll
 
 	for {
 		j = len(path)
@@ -312,7 +386,7 @@ func (t *Trie) Add(path string, newFilter FilterBuilder) *Trie {
 			if len(t.path) == 0 {
 				panic("rivet: internal error, add a pattern group?")
 			}
-			return t
+			break
 		}
 
 		if t.perk != nil && t.name == "*" {
@@ -334,6 +408,7 @@ func (t *Trie) Add(path string, newFilter FilterBuilder) *Trie {
 				panic("rivet: internal error form pattern group for: " + path)
 			}
 
+			t.catchAll = t.catchAll || catchAll
 			// 提取模式段
 			for i = 0; i < len(path); i++ {
 				if path[i] == '/' {
@@ -351,6 +426,7 @@ func (t *Trie) Add(path string, newFilter FilterBuilder) *Trie {
 			// 重复
 			if j < len(t.nodes) {
 				t = t.nodes[j]
+				t.catchAll = t.catchAll || catchAll
 				path = path[i:]
 				continue
 			}
@@ -360,6 +436,7 @@ func (t *Trie) Add(path string, newFilter FilterBuilder) *Trie {
 			child = new(Trie)
 			child.path = path[:i]
 			child.perk = newPerk(child.path, newFilter)
+			child.catchAll = catchAll
 			path = path[i:]
 
 			if child.name == "*" {
@@ -408,6 +485,10 @@ func (t *Trie) Add(path string, newFilter FilterBuilder) *Trie {
 			child.nodes = t.nodes
 			child.indices = t.indices
 
+			child.catchAll = catchAllOld
+			child.names = t.names
+			t.names = nil
+
 			t.id = 0
 			t.perk = nil
 			t.path = t.path[:i]
@@ -418,7 +499,7 @@ func (t *Trie) Add(path string, newFilter FilterBuilder) *Trie {
 		}
 
 		if len(path) == 0 {
-			return t
+			break
 		}
 
 		// 查找 ":","*"
@@ -430,15 +511,16 @@ func (t *Trie) Add(path string, newFilter FilterBuilder) *Trie {
 
 		// 新子节点是 定值节点
 		if i != 0 {
+
 			for j = 0; j < len(t.indices); j++ {
 				if t.indices[j] == path[0] {
 					break
 				}
 			}
-
 			// 重复子节点
 			if j < len(t.indices) {
 				t = t.nodes[j]
+				t.catchAll = t.catchAll || catchAll
 				continue
 			}
 
@@ -448,6 +530,7 @@ func (t *Trie) Add(path string, newFilter FilterBuilder) *Trie {
 			child.indices = []byte{} // 不能省略, 判断依据
 			child.slashMax = t.slashMax - slashCount(t.path)
 			child.slash = slashCount(child.path)
+			child.catchAll = catchAll
 
 			path = path[i:]
 
@@ -468,12 +551,14 @@ func (t *Trie) Add(path string, newFilter FilterBuilder) *Trie {
 			t.nodes[i] = child
 			t.indices[i] = child.path[0]
 
+			catchAllOld = t.catchAll
 			t = child
 
 			continue
 		}
 
 		// 新子节点是模式节点
+		t.catchAll = t.catchAll || catchAll
 
 		// t 的子节点已有模式节点或分组
 		if len(t.indices) != 0 && t.indices[0] == 0 {
@@ -491,6 +576,10 @@ func (t *Trie) Add(path string, newFilter FilterBuilder) *Trie {
 			child.nodes = t.nodes
 			child.slash = t.slash
 			child.slashMax = t.slashMax
+			child.catchAll = t.catchAll
+
+			child.names = t.names
+			t.names = nil
 
 			t.id = 0
 			t.perk = nil
@@ -512,6 +601,7 @@ func (t *Trie) Add(path string, newFilter FilterBuilder) *Trie {
 		child.path = path[:i]
 		child.perk = newPerk(child.path, newFilter)
 		child.slash = slashCount(child.path)
+		child.catchAll = t.catchAll
 		path = path[i:]
 
 		// 模式子节点索引为 0x0, 只能有一个, 位于 nodes[0]
@@ -520,6 +610,13 @@ func (t *Trie) Add(path string, newFilter FilterBuilder) *Trie {
 
 		t = child
 	}
+
+	t.catchAll = catchAll
+	if t.names == nil {
+		t.names = names
+	}
+
+	return t
 }
 
 /**
@@ -528,14 +625,18 @@ Print 用于调试输出, 便于查看 Trie 的结构.
 	prefix 行前缀
 
 输出格式:
-Id 斜线个数[RPG] 缩进'path' 子节点数量[子节点首字符]
+Id 斜线个数[RPG*] 缩进'path' [子节点首字符]子节点数量 names
 
+其中:
 	R 表示路由
 	P 表示模式节点
 	G 表示模式分组
+	* 表示自己或者下属节点是否 catchAll
+	names 是参数名 map
 */
 func (t *Trie) Print(prefix string) {
-	info := []byte{' ', ' ', ' '}
+
+	info := []byte{' ', ' ', ' ', ' '}
 
 	if t.id != 0 {
 		info[0] = 'R'
@@ -546,8 +647,16 @@ func (t *Trie) Print(prefix string) {
 	if len(t.path) == 0 {
 		info[2] = 'G'
 	}
+	if t.catchAll {
+		info[3] = '*'
+	}
 
-	fmt.Printf("%4d %2d[%v] %s'%s' %4d[%s]\n", t.id, t.slashMax, string(info), prefix, t.path, len(t.nodes), string(t.indices))
+	fmt.Printf("%4d %2d[%v] %s'%s' [%s]%d %v\n", t.id,
+		t.slashMax, string(info),
+		prefix, t.path,
+		string(t.indices), len(t.nodes),
+		t.names,
+	)
 
 	for l := len(t.path); l >= 0; l-- {
 		prefix += " "

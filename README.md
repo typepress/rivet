@@ -215,8 +215,7 @@ func main() {
 
 * [Params][] 保存 URL.Path 中的参数
 * [Filter][] 检查/转换 URL.Path 参数, 亦可过滤请求.
-* [Node][] 保存 handler, 二次过滤 Params, 每个 Node 都拥唯一 id.
-    二次过滤很重要, 路由匹配过程中可能发生回溯, 会产生一些多余参数.
+* [Node][] 保存 handler, 每个 Node 都拥唯一 id.
 * [Trie][] 匹配 URL.Path, 调用 Filter, 调用 Params 生成器.
     匹配到的 Trie.id 和 Node.id 是对应的.
 * [Context][] 维护上下文, 处理 handler. 内置 Rivet 实现了它.

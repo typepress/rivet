@@ -5,7 +5,6 @@ node 负责通过 Context 调用 Handler, 处理 http Request.
 */
 type node struct {
 	id      int
-	keys    map[string]bool
 	riveter Riveter
 	handler []interface{}
 }
@@ -14,26 +13,10 @@ type node struct {
 NewNode 返回内建的 Node 实例.
 参数:
 	id  识别号码
-	key 用于过滤 URL.Path 参数名, 缺省全通过.
-		内建 Node 实现中, 如果设置了 key, Apply 方法会删除
-		context.Params() 中 key 之外的数据. 算法: 如果
-
-			 key != nil && len(key) != len(context.Params())
-
-			为真, 删除多余的数据.
 */
-func NewNode(id int, key ...string) Node {
+func NewNode(id int) Node {
 	n := new(node)
 	n.id = id
-
-	if len(key) != 0 {
-
-		n.keys = make(map[string]bool)
-		for _, k := range key {
-			n.keys[k] = true
-		}
-	}
-
 	return n
 }
 
@@ -51,9 +34,6 @@ func (n *node) Handlers(handler ...interface{}) {
 
 func (n *node) Apply(c Context) {
 
-	var params Params
-	var pparams PathParams
-
 	if n == nil {
 
 		if c == nil {
@@ -63,39 +43,6 @@ func (n *node) Apply(c Context) {
 		req := c.Request()
 		panic("rivet: internal error, *base is nil for " +
 			req.Method + " \"" + req.Host + req.URL.Path + "\"")
-	}
-
-	if n.keys != nil {
-
-		params = c.GetParams()
-		if params != nil {
-
-			if len(params) > len(n.keys) {
-
-				clear := len(n.keys) == 0
-				for k, _ := range params {
-
-					if clear || !n.keys[k] {
-						delete(params, k)
-					}
-				}
-			}
-		} else {
-
-			pparams = c.GetPathParams()
-
-			if len(pparams) > len(n.keys) {
-
-				clear := len(n.keys) == 0
-				for k, _ := range pparams {
-
-					if clear || !n.keys[k] {
-						delete(pparams, k)
-					}
-				}
-			}
-
-		}
 	}
 
 	if n.riveter != nil {

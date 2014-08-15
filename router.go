@@ -187,53 +187,9 @@ func (r *Router) add(method string, pattern string, handlers []interface{}) Node
 
 	trie.id = len(r.nodes)
 
-	_, keys, _ := parsePattern(pattern)
-	node := r.newNode(trie.id, keys...)
+	node := r.newNode(trie.id)
 	node.Handlers(handlers...)
 	r.nodes = append(r.nodes, node)
 
 	return node
-}
-
-func parsePattern(path string) (slash int, keys []string, cathAll bool) {
-
-	size := len(path)
-	keys = []string{}
-
-	for i := 0; i < size; i++ {
-		switch path[i] {
-		case '/':
-			slash++
-		case ':', '*':
-			if i+1 < size && path[i] == path[i+1] {
-				cathAll = true
-				if i+2 != size {
-					panic("rivet: catch-all must be end of pattern. " + path)
-				}
-				keys = append(keys, "*")
-				break
-			}
-
-			j := i + 1
-			k := 0
-			for ; i < size; i++ {
-				if k == 0 && path[i] == ' ' {
-					k = i
-				}
-				if path[i] == '/' {
-					slash++
-					break
-				}
-			}
-
-			if k == 0 {
-				k = i
-			}
-
-			if path[j:k] != "" {
-				keys = append(keys, path[j:k])
-			}
-		}
-	}
-	return
 }

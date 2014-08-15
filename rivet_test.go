@@ -7,6 +7,36 @@ import (
 	"testing"
 )
 
+type debugParams struct {
+	maps map[string]interface{}
+	diff int
+}
+
+func newDebugParams() *debugParams {
+	return &debugParams{maps: map[string]interface{}{}}
+}
+func (p *debugParams) ParamsReceiver(key, text string, val interface{}) {
+	p.maps[key] = val
+}
+
+// ParamsNames 接收合法的参数名
+func (p *debugParams) ParamsNames(names map[string]bool) {
+	if len(p.maps) != len(names) {
+		clear := len(names) == 0
+		for k, _ := range p.maps {
+			if clear || !names[k] {
+				p.diff++
+			}
+		}
+		for k, _ := range names {
+			if p.maps[k] == nil {
+				p.diff++
+			}
+		}
+
+	}
+}
+
 func assert(t *testing.T, got interface{}, want interface{}, s ...string) {
 	if fmt.Sprint(got) != fmt.Sprint(want) {
 
@@ -53,6 +83,8 @@ func TestTrie(t *testing.T) {
 		"/:name/path/to",
 		"/:name",
 		"/:name/path",
+		"/:name/path/**",
+		"/:name/**",
 		"/hi/**",
 	}
 
@@ -65,9 +97,9 @@ func TestTrie(t *testing.T) {
 			t.Fatalf("panic *trie.Add '%s': %v", path, recv)
 		}
 	}
-
+	//root.Print("")
 	for i, path := range routes {
-		p := make(Params)
+		p := newDebugParams()
 		child := root.Match(path, p, nil, nil)
 
 		if child == nil {
@@ -77,12 +109,11 @@ func TestTrie(t *testing.T) {
 			t.Errorf("*trie.Match route is nil'%s'", path)
 		}
 
-		_, keys, _ := parsePattern(path)
-
-		for i := 0; i < len(keys); i++ {
-			if _, ok := p[keys[i]]; !ok {
-				t.Errorf("*trie.Match: incorrect Params:\n %s\n %v\n %#v\n", path, keys, p)
-			}
+		_, names := analyzePath(path)
+		if p.diff != 0 {
+			t.Errorf(
+				"*trie.Match: incorrect Params:\n %s\n child.name: %s\n child.names: %#v\n path names: %#v\n params: %#v\n",
+				path, child.name, child.names, names, p.maps)
 		}
 	}
 
@@ -119,16 +150,22 @@ func Test_HasParams(t *testing.T) {
 	for i := 0; i < len(hasParams); i += 3 {
 		mux.Handle(hasParams[i], hasParams[i+1])
 	}
-	p := Params{}
+
 	for i := 0; i < len(hasParams); i += 3 {
 
+		p := newDebugParams()
 		method, urlPath := hasParams[i], hasParams[i+2]
+
 		node := mux.Match(method, urlPath, p, nil, nil)
+
 		if node.Id() == 0 {
 			t.Fatalf("NotFound : %s", urlPath)
 		}
-		if len(p) == 0 {
+		if len(p.maps) == 0 {
 			t.Fatal("want Params , but got nil:", node.Id(), urlPath)
+		}
+		if p.diff != 0 {
+			t.Fatalf("NotFound : params received to more %s", urlPath)
 		}
 	}
 }

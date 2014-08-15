@@ -25,14 +25,30 @@ func (p Params) Get(key string) string {
 	return fmt.Sprint(i)
 }
 
-// Params 符合 ParamsReceiver 接口
+// ParamsReceiver 逐个接受路由匹配提取到的参数.
 func (p Params) ParamsReceiver(key, text string, val interface{}) {
 	p[key] = val
 }
 
 /**
+// ParamsNames 接收合法的参数名
+func (p Params) ParamsNames(names map[string]bool) {
+	if len(p) != len(names) {
+		clear := len(names) == 0
+		for k, _ := range p {
+
+			if clear || !names[k] {
+				delete(p, k)
+			}
+		}
+	}
+}
+*/
+
+/**
 PathParams 存储原始的 URL.Path 参数.
 与 Scene/NewScene 配套使用.
+PathParams 符合 ParamsReceiver 接口.
 */
 type PathParams map[string]string
 
@@ -41,7 +57,22 @@ func (p PathParams) Get(key string) string {
 	return p[key]
 }
 
-// PathParams 符合 ParamsReceiver 接口
+/**
+// ParamsNames 接收合法的参数名
+func (p PathParams) ParamsNames(names map[string]bool) {
+	if len(p) != len(names) {
+		clear := len(names) == 0
+		for k, _ := range p {
+
+			if clear || !names[k] {
+				delete(p, k)
+			}
+		}
+	}
+}
+*/
+
+// ParamsReceiver 逐个接受路由匹配提取到的参数.
 func (p PathParams) ParamsReceiver(key, text string, val interface{}) {
 	p[key] = text
 }
@@ -50,14 +81,30 @@ func (p PathParams) ParamsReceiver(key, text string, val interface{}) {
 ParamsReceiver 接收 URL.Path 参数.
 路由匹配过程中, 当提取到参数时, 会调用参数接收函数.
 事实上实例函数作为参数传递给 Trie.Match, 由 Trie.Match 调用.
-
-参数:
-	key  参数名, "*" 代表 catch-All 模式的名字
-	text URL.Path 中的原值.
-	val  经 Filter 处理后的值.
 */
 type ParamsReceiver interface {
-	ParamsReceiver(key, text string, val interface{})
+	/**
+	ParamsReceiver 接收参数.
+	过滤前, 要先接收参数. 路由匹配时, 每此提取到一个参数就被调用一次.
+	参数:
+		name  参数名, "*" 代表 catch-All 模式的名字
+		text URL.Path 中的原值.
+		val  经 Filter 处理后的值.
+	*/
+	ParamsReceiver(name, text string, val interface{})
+
+	/**
+	此功能调试 bug 用
+	ParamsNames 接收路由原定义中的参数名.
+	路由匹配时可能发生回溯, ParamsReceiver 可能接收到多余的参数.
+	匹配最后把有效的参数名回传给 ParamsNames 用于过滤参数.
+	参数:
+		names  以 map[string]bool 形式, name 作为 key 存储.
+		此参数有可能为 nil. 表示原 pattern 中无参数可提取.
+
+	匹配成功, 此方法总是被调用. ParamsNames 不应该更改 names.
+	*/
+	//ParamsNames(names map[string]bool)
 }
 
 /**
@@ -203,6 +250,5 @@ type Node interface {
 NodeBuilder 是 Node 生成器.
 参数:
 	id  识别号码
-	key 用于过滤 URL.Path 参数名, 缺省全通过
 */
-type NodeBuilder func(id int, key ...string) Node
+type NodeBuilder func(id int) Node
