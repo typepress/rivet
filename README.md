@@ -3,7 +3,7 @@ Rivet
 
 [![Go Walker](http://gowalker.org/api/v1/badge)](http://gowalker.org/github.com/typepress/rivet)
 
-简洁, 支持注入, 可定制, 深度解耦的 http 路由管理器.
+简洁, 超强路由, 支持注入, 可定制, 深度解耦的 http 路由管理器.
 
 Rivet 专注路由相关功能, 未来不会增加非路由相关的功能.
 
@@ -104,6 +104,32 @@ func Events(params rivet.Params, rw http.ResponsWriter) {
 mux.Get("/users/:user/events", userEvents)
 mux.Get("/users/:user/events/orgs/:org", userOrgEvents)
 ```
+
+超强路由
+========
+
+通常 Router 库都能支持静态路由, 参数路由, 可选尾部斜线, Rivet 也同样支持, 而且支持的更好. 下面这些路由并存, 同样能正确匹配:
+
+```
+"/",
+"/hi",
+"/hi/**",
+"/hi/path/to",
+"/hi/:name/to",
+"/:name",
+"/:name/path",
+"/:name/path/to",
+"/:name/path/**",
+"/:name/**",
+```
+
+即便如此, 还会有这些路不能并存. 比如在上面的路由中加入:
+```
+"/**"
+```
+
+是无法正确匹配 URL.Path `"/xx/zzz/yyy"` 的, 因为已经进入 `"/:name/**"`, 
+ `**"` 深层嵌套使问题的解决成本过高, 使用时避免这种用法即可. 后文详细介绍路由风格.
 
 注入
 ====
@@ -367,7 +393,20 @@ uint 是内置的 class, 参见 [FilterClass][].
 
 ":id uint" 表示参数名是 "id", 数据必须是 uint 字符串.
 
-路由风格:
+示例: 可选尾斜线
+```
+"/news/?"
+```
+
+可匹配:
+```
+"/news"
+"/news/"
+```
+
+"/?" 只能在尾部出现.
+
+除了可选尾斜线, 路由风格可归纳为:
 
 ```
 "/path/to/prefix:pattern/:pattern/:"
@@ -416,18 +455,6 @@ uint 是内置的 class, 参见 [FilterClass][].
     "/path/to*"
     "/path/to/**"
 ```
-
-Rivet 在路由匹配上做了很多工作, 支持下列路由同时存在, 并正确匹配:
-
-```
-"/path/to:name"
-"/path/to:name/"
-"/path/to:name/suffix"
-"/:name"
-"/path/**"
-```
-
-即便如此, 还会有这些路不能并存.
 
 Scene
 =====

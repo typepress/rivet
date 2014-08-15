@@ -54,8 +54,6 @@ func TestTrie(t *testing.T) {
 	root := NewRootTrie()
 
 	routes := []string{
-		"/",
-		"/hi",
 		"/b/",
 		"/search/:query",
 		"/cmd/:tool/",
@@ -78,14 +76,16 @@ func TestTrie(t *testing.T) {
 		"/no/b",
 		"/api/hello/:name",
 		"/empty",
-		"/hi/:name/path",
-		"/hi/:name string/path/to",
-		"/:name/path/to",
+		"/",
+		"/hi",
+		"/hi/**",
+		"/hi/path/to",
+		"/hi/:name/to",
 		"/:name",
 		"/:name/path",
+		"/:name/path/to",
 		"/:name/path/**",
 		"/:name/**",
-		"/hi/**",
 	}
 
 	for i, path := range routes {
@@ -97,7 +97,7 @@ func TestTrie(t *testing.T) {
 			t.Fatalf("panic *trie.Add '%s': %v", path, recv)
 		}
 	}
-	//root.Print("")
+
 	for i, path := range routes {
 		p := newDebugParams()
 		child := root.Match(path, p, nil, nil)
@@ -166,6 +166,102 @@ func Test_HasParams(t *testing.T) {
 		}
 		if p.diff != 0 {
 			t.Fatalf("NotFound : params received to more %s", urlPath)
+		}
+	}
+}
+
+var otsRoutes = []string{
+	"GET", "/:mad uint/?", "/12387",
+	"GET", "/:mad uint/?", "/12387/",
+	"GET", "/catch/all/?", "/catch/all",
+	"GET", "/catch/all/?", "/catch/all/",
+}
+
+func Test_OTS(t *testing.T) {
+	routes := otsRoutes
+	mux := NewRouter(nil)
+
+	i := 0
+	for i = 0; i < len(routes); i += 3 {
+		method, urlPath := routes[i], routes[i+1]
+		recv := catchPanic(func() {
+			mux.Handle(method, urlPath)
+		})
+
+		if recv != nil {
+			t.Fatalf("panic Handle '%s': %v", urlPath, recv)
+		}
+	}
+	// mux.RootTrie("GET").Print("")
+	for i := 0; i < len(routes); i += 3 {
+
+		p := newDebugParams()
+		method, urlPath := routes[i], routes[i+2]
+
+		node := mux.Match(method, urlPath, p, nil, nil)
+
+		if node.Id() == 0 {
+			t.Fatalf("NotFound : %s", urlPath)
+		}
+		if i < 2 && len(p.maps) == 0 {
+			t.Fatal("want Params , but got nil:", node.Id(), urlPath)
+		}
+		if p.diff != 0 {
+			t.Fatalf("NotFound : params received to more %s", urlPath)
+		}
+	}
+}
+
+var zRoutes = []string{
+	"/",
+	"/",
+	"/hi",
+	"/hi",
+	"/hi/**",
+	"/hi/z",
+	"/hi/path/to",
+	"/hi/path/to",
+	"/hi/:name/to",
+	"/hi/:name/to",
+	"/:name",
+	"/:name",
+	"/:name/path",
+	"/:name/path",
+	"/:name/path/to",
+	"/:name/path/to",
+	"/:name/path/**",
+	"/:name/path/z",
+	"/:name/**",
+	"/:name/z",
+}
+
+func Test_Z(t *testing.T) {
+	routes := zRoutes
+	mux := NewRouter(nil)
+
+	i := 0
+	for i = 0; i < len(routes); i += 2 {
+		urlPath := routes[i]
+		recv := catchPanic(func() {
+			mux.Get(urlPath)
+		})
+
+		if recv != nil {
+			t.Fatalf("panic Handle '%s': %v", urlPath, recv)
+		}
+	}
+
+	root := mux.RootTrie("GET")
+	//root.Print("")
+
+	for i := 0; i < len(routes); i += 2 {
+
+		urlPath := routes[i+1]
+
+		trie := root.Match(urlPath, nil, nil, nil)
+
+		if trie.id != i/2+1 {
+			t.Fatalf("missing : %d %s", trie.id, urlPath)
 		}
 	}
 }

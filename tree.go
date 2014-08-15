@@ -148,6 +148,7 @@ type Trie struct {
 	slash    int  // path 中的斜线个数
 	slashMax int  // 后续 tree 中的斜线最大个数
 	catchAll bool // "/**"
+	ots      bool // optional trailing slashes , 可选尾部斜线
 }
 
 /**
@@ -274,12 +275,25 @@ WALK:
 		c = path[0]
 		for i, idx = range t.indices {
 			if c == idx {
-				if len(t.nodes[i].path) <= len(path) &&
-					t.nodes[i].path == path[:len(t.nodes[i].path)] {
+				if len(t.nodes[i].path) <= len(path) {
 
-					t = t.nodes[i]
-					path = path[len(t.path):]
-					continue WALK
+					if t.nodes[i].path == path[:len(t.nodes[i].path)] {
+
+						t = t.nodes[i]
+						path = path[len(t.path):]
+						continue WALK
+					}
+
+				} else if t.nodes[i].ots {
+					// 未被分割的尾斜线
+
+					if len(t.nodes[i].path) == len(path)+1 &&
+						t.nodes[i].path[:len(path)] == path {
+
+						t = t.nodes[i]
+						path = ""
+						continue WALK
+					}
 				}
 				break
 			}
@@ -326,6 +340,13 @@ WALK:
 			return t
 		}
 
+		// 被分割的尾斜线, 会在子节点中
+		for i, c := range t.indices {
+			if c == '/' && t.nodes[i].ots && t.nodes[i].id != 0 {
+				return t.nodes[i]
+			}
+		}
+
 		if len(t.indices) != 0 && t.indices[0] == 0 {
 			// catch-all
 			if t.nodes[0].path == "" {
@@ -366,9 +387,23 @@ func (t *Trie) Add(path string, newFilter FilterBuilder) *Trie {
 	var i, j int
 	var child *Trie
 
-	if t.path != "/" || len(path) == 0 || path[0] != '/' {
+	if len(path) == 0 || path[0] != '/' {
 		panic("rivet: Add supported only from root Trie.")
 	}
+
+	// optional trailing slashes
+
+	ots := path[len(path)-1] == '?'
+
+	if ots {
+		path = path[:len(path)-1]
+		if path == "/" {
+			ots = false
+		} else if len(path) < 1 || path[len(path)-1] != '/' {
+			panic("rivet: invalid optional trailing slashes: " + path + "?")
+		}
+	}
+
 	if newFilter == nil {
 		newFilter = NewFilter
 	}
@@ -378,7 +413,6 @@ func (t *Trie) Add(path string, newFilter FilterBuilder) *Trie {
 	catchAll := names["*"]
 	catchAllOld := t.catchAll
 	t.catchAll = t.catchAll || catchAll
-
 	for {
 		j = len(path)
 
@@ -487,6 +521,8 @@ func (t *Trie) Add(path string, newFilter FilterBuilder) *Trie {
 
 			child.catchAll = catchAllOld
 			child.names = t.names
+			child.ots = t.ots
+			t.ots = false
 			t.names = nil
 
 			t.id = 0
@@ -611,6 +647,7 @@ func (t *Trie) Add(path string, newFilter FilterBuilder) *Trie {
 		t = child
 	}
 
+	t.ots = ots
 	t.catchAll = catchAll
 	if t.names == nil {
 		t.names = names
@@ -625,13 +662,14 @@ Print 用于调试输出, 便于查看 Trie 的结构.
 	prefix 行前缀
 
 输出格式:
-Id 斜线个数[RPG*] 缩进'path' [子节点首字符]子节点数量 names
+Id 斜线个数[RPG*] 缩进'path' [子节点首字符]子节点数量 ots names
 
 其中:
 	R 表示路由
 	P 表示模式节点
 	G 表示模式分组
 	* 表示自己或者下属节点是否 catchAll
+	ots 是否尾斜线匹配
 	names 是参数名 map
 */
 func (t *Trie) Print(prefix string) {
@@ -651,11 +689,11 @@ func (t *Trie) Print(prefix string) {
 		info[3] = '*'
 	}
 
-	fmt.Printf("%4d %2d[%v] %s'%s' [%s]%d %v\n", t.id,
+	fmt.Printf("%4d %2d[%v] %s'%s' [%s]%d %v %v\n", t.id,
 		t.slashMax, string(info),
 		prefix, t.path,
 		string(t.indices), len(t.nodes),
-		t.names,
+		t.ots, t.names,
 	)
 
 	for l := len(t.path); l >= 0; l-- {
