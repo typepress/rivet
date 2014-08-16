@@ -5,7 +5,7 @@ import (
 )
 
 /**
-ResponseWriter 扩展 http.ResponseWriter.
+ResponseWriter 提供状态支持
 */
 type ResponseWriter interface {
 	http.ResponseWriter

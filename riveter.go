@@ -19,7 +19,7 @@ var (
 
 /**
 TypeIdOf 返回 v 的类型签名地址, 转换为 uint 类型.
-此方法使用 reflect 获取类型地址.
+内部使用 reflect 获取类型地址.
 
 示例:
 获取 fmt.Stringer 接口类型签名:
@@ -62,7 +62,7 @@ func TypeIdOf(v interface{}) uint {
 }
 
 /**
-Rivet 符合 Context 接口. 您应该用 NewContext 生成实例.
+Rivet 符合 Context 接口. 请使用 NewContext 生成实例.
 */
 type Rivet struct {
 	Params
@@ -74,7 +74,7 @@ type Rivet struct {
 	mapv    bool // 是否已经 Map 相关参数
 }
 
-// NewContext 返回 *Rivet 实现的 Context
+// NewContext 新建 *Rivet 实例实现的 Context.
 func NewContext(res http.ResponseWriter, req *http.Request) Context {
 
 	c := new(Rivet)
@@ -93,7 +93,7 @@ func (c *Rivet) Response() http.ResponseWriter {
 	return c.res
 }
 
-// WriteString 方便向 http.ResponseWriter 写入 string.
+// WriteString 向 http.ResponseWriter 写入 data.
 func (c *Rivet) WriteString(data string) (int, error) {
 	return io.WriteString(c.res, data)
 }
@@ -104,15 +104,18 @@ func (c *Rivet) GetParams() Params {
 }
 
 /**
-PathParams 返回由 Scene 接受的参数.
-此方法与 Scene 配套.
+PathParams 返回路由匹配时从 URL.Path 中提取的参数
+此方法与 Scene/NewScene 配套使用.
 */
 func (c *Rivet) GetPathParams() PathParams {
 	return c.PathParams
 }
 
-// ParamsReceiver 逐个接受路由匹配提取到的参数.
-func (c *Rivet) ParamsReceiver(name, text string, val interface{}) {
+/**
+ParamsReceiver 逐个接收从 URL.Path 中提取的参数.
+此方法把参数值 val 保存在 Params 字段中.
+*/
+func (c *Rivet) ParamsReceiver(name, _ string, val interface{}) {
 
 	if c.Params == nil {
 		c.Params = make(Params, 1)
@@ -120,29 +123,7 @@ func (c *Rivet) ParamsReceiver(name, text string, val interface{}) {
 	c.Params[name] = val
 }
 
-/**
-// ParamsNames 接收合法的参数名
-func (c *Rivet) ParamsNames(names map[string]bool) {
-
-	if c.Params != nil {
-
-		c.Params.ParamsNames(names)
-		return
-	}
-
-	if c.PathParams != nil {
-
-		c.PathParams.ParamsNames(names)
-		return
-	}
-
-	if len(names) != 0 {
-		panic("rivet: the received parameter is not sufficient.")
-	}
-}
-*/
-
-// Handlers 设置 handler, 第一次使用有效.
+// Handlers 设置 handler, 首次使用有效.
 func (c *Rivet) Handlers(handler ...interface{}) {
 	if c.handler == nil {
 		c.handler = handler
@@ -153,10 +134,10 @@ func (c *Rivet) Handlers(handler ...interface{}) {
 Get 以类型标识 t 为 key, 获取关联到 context 的变量.
 如果未找到, 通常返回 nil, 特别的:
 
-	如果 t 标识 map[string]interface{}, 用 Params 标识再试一次.
-	如果 t 标识 map[string]string, 用 PathParams 标识再试一次.
+	如果 t 代表 map[string]interface{}, 用 Params 标识再试一次.
+	如果 t 代表 map[string]string, 用 PathParams 标识再试一次.
 
-这样做, 如果不用 Map 功能, 所写的 Handler 就不需要 import "rivet".
+这样做, 如果不用 Map 功能, 所写的 Handler 就不需要 import rivet.
 */
 func (r *Rivet) Get(t uint) (v interface{}) {
 	v, _ = r.get(t)
@@ -196,6 +177,7 @@ Map 等同 MapTo(v, TypeIdOf(v)). 以 v 的类型标识为 key.
 Rivet 自动 Map 的变量类型有:
 	Context
 	Params
+	PathParams
 	ResponseWriter
 	http.ResponseWriter
 	*http.Request
@@ -206,12 +188,12 @@ func (r *Rivet) Map(v interface{}) {
 
 /**
 MapTo 以 t 为 key 把变量 v 关联到 context. 相同 t 值只保留一个.
-调用者也许会自己定义一个值, 注意选择值不能和真实类型标识冲突.
-否则可能会传递给 Handler 错误的参数.
+调用者也许会自己定义一个值, 注意不要和真实类型标识冲突.
+否则会导致不可预计的错误.
 */
 func (r *Rivet) MapTo(v interface{}, t uint) {
 	if r.val == nil {
-		r.val = make(map[uint]interface{}, 1)
+		r.val = make(map[uint]interface{}, 6)
 	}
 	r.val[t] = v
 }
@@ -219,7 +201,7 @@ func (r *Rivet) MapTo(v interface{}, t uint) {
 /**
 Next 遍历 Handlers 保存的 handler, 通过 Invoke 调用.
 如果 ResponseWriter.Written() 为 true, 终止遍历.
-Next 最后会调用 ResponseWriter.Flush().
+Next 最后会调用 ResponseWriter.Flush(), 清空 handler.
 */
 func (c *Rivet) Next() {
 
@@ -268,7 +250,6 @@ Invoke 处理 handler.
 	func(Params, ResponseWriter, *http.Request)
 	func(Params, http.ResponseWriter, *http.Request)
 
-	特别增加 PathParams/Scene 支持.
 	func(PathParams)
 	func(PathParams, *http.Request)
 	func(PathParams, ResponseWriter)
@@ -277,7 +258,7 @@ Invoke 处理 handler.
 	func(PathParams, http.ResponseWriter, *http.Request)
 	http.Handler
 
-注意:
+提示:
 	Invoke 未捕获可能产生的 panic, 需要使用者处理.
 */
 func (c *Rivet) Invoke(handler interface{}) bool {
@@ -374,18 +355,22 @@ func (c *Rivet) Invoke(handler interface{}) bool {
 }
 
 /**
-Scene 支持以 PathParams 类型为参数的 Handler.
+Scene 支持 Handler 参数类型为 PathParams 的风格.
 */
 type Scene struct {
 	*Rivet
 }
 
-// NewScene 返回 Scene 实现的 Context
+// NewScene 新建 *Scene 实例实现的 Context.
 func NewScene(res http.ResponseWriter, req *http.Request) Context {
 	return Scene{NewContext(res, req).(*Rivet)}
 }
 
-func (c Scene) ParamsReceiver(key, text string, val interface{}) {
+/**
+ParamsReceiver 逐个接收从 URL.Path 中提取的参数.
+此方法把参数值 text 保存在 PathParams 字段中.
+*/
+func (c Scene) ParamsReceiver(key, text string, _ interface{}) {
 	if c.PathParams == nil {
 		c.PathParams = make(PathParams, 1)
 	}

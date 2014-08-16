@@ -12,6 +12,8 @@ Rivet
 
 这里有个路由专项评测 [go-http-routing-benchmark][benchmark].
 
+Rivet 版本号采用 [Semantic Versioning](http://semver.org/).
+
 简洁
 ====
 
@@ -267,7 +269,7 @@ Params 无其它依赖, 有 PathParams 风格可选. 自定义 [ParamsReceiver][
 
 Filter 接口无其它依赖. 自定义 [FilterBuilder][] 定制.
 
-Node 接口依赖 Context. 自定义 [NodeBuilder][] 定制.
+Node 接口依赖 Context. 自定义 [NodeBuilder][] 定制. 可以建立独立的 Context.
 
 Trie 是路由匹配的核心, 依赖 Filter, ParamsReceiver. 它们都可定制.
 
@@ -524,7 +526,7 @@ func main() {
 }
 ```
 
-*提示: PathParams 和 NewScene 配套使用. 事实上 Context 采用的是 All-In-One 的设计方式, 具体实现不必未完成所有接口, 使用方法配套即可.*
+*提示: PathParams 和 NewScene 配套使用. 事实上 Context 采用 All-In-One 的设计方式, 具体实现不必未完成所有接口, 使用方法配套即可.*
 
 Acknowledgements
 ================

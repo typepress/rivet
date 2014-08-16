@@ -5,7 +5,7 @@ import (
 )
 
 /**
-Router 管理路由, 通过匹配到的 Node 调用 Context.Next.
+Router 管理路由.
 */
 type Router struct {
 	rivet   Riveter
@@ -15,7 +15,7 @@ type Router struct {
 }
 
 /**
-NewRouter 新建一个 Router, 并设置 NotFound 为 http.NotFound.
+NewRouter 新建 *Router, 并设置 NotFound Handler 为 http.NotFound.
 参数:
 	rivet 用于生成 Context 实例, 如果为 nil 使用 NewContext 创建.
 */
@@ -133,8 +133,8 @@ Match 匹配路由节点. 如果匹配失败, 返回 NotFound 节点.
 	method   Request.Method, 确定对应的 Root Trie.
 	urlPath  Request.URL.Path, 传递给 Trie.
 	rec      URL.Path 参数接收器, 传递给 Trie.
-	rw       响应, 传递给 Filter.
-	req      请求, 传递给 Filter.
+	rw       http 响应, 传递给 Trie.
+	req      http 请求, 传递给 Trie.
 */
 func (r *Router) Match(method, urlPath string, rec ParamsReceiver,
 	rw http.ResponseWriter, req *http.Request) Node {
@@ -166,6 +166,7 @@ func (r *Router) RootTrie(method string) *Trie {
 func (r *Router) add(method string, pattern string, handlers []interface{}) Node {
 
 	if pattern == "" {
+		r.nodes[0] = r.newNode(0)
 		r.nodes[0].Handlers(handlers...)
 		return r.nodes[0]
 	}

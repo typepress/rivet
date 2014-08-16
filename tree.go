@@ -116,27 +116,15 @@ type discardParams bool
 func (discardParams) ParamsReceiver(key, text string, val interface{}) {
 }
 
-func (discardParams) ParamsNames(map[string]bool) {}
-
 var _discard = discardParams(true)
 
 /**
-Trie 不直接管理路由, 通过用户可设置字段 Id 组织管理 URL path.
-用户通过字段 Id 自己维护路由, 0 值表示非路由节点.
-NewRootTrie 已经已经设置好根节点, 因此节点总是已经设置好.
-三种节点:
-	定值节点     pattern==nil && indices!=nil
-	模式节点     pattern!=nil
-	模式分组节点 pattern==nil && indices==nil && path==""
+Trie 管理路由 patterns.
+Trie 不直接管理路由 Handler, 由使用者通过 SetId 进行组织管理.
+id 为 0 的节点保留给内部算法使用, 所以 0 值表示非路由节点.
 
-举例:	 "/:name" 和 "/:cat" 是被允许的, 生成的解构
-		定值节点  "/"
-		模式分组      ""
-		模式节点          ":name"
-		模式节点          ":cat"
-
-	定值节点的子节点最多只能包含一个模式节点或者模式分组节点, 索引用 0x0.
-	模式分组的 path 为 "", 子节点为模式节点数组.
+请使用 NewRootTrie 获得根节点.
+使用 Print 方法有助于了 Trie 的结构和算法.
 */
 type Trie struct {
 	*perk
@@ -159,30 +147,42 @@ func NewRootTrie() *Trie {
 }
 
 /**
-GetId 返回用户数据标识 id, 0 表示非路由节点
+GetId 返回节点 id.
 */
 func (t *Trie) GetId() int {
+	if t == nil {
+		return 0
+	}
 	return t.id
 }
 
 /**
-SetId 设置用户数据标识 id.
-SetId 内部允许设置条件为:
+SetId 设置节点 id. 设置条件为:
 
-	id != 0 && t.id == 0 && len(t.path) != 0
+	id != 0 && t != nil && t.id == 0
 
-其中 len(t.path) 为 0 是分组节点, 不能用于路由.
+其中:
+	t.id == 0 为内部管理节点
 */
 func (t *Trie) SetId(id int) {
-	if id != 0 && t.id == 0 && len(t.path) != 0 {
+	if id != 0 && t != nil && t.id == 0 {
 		t.id = id
 	}
 }
 
 /**
-Match 匹配 url path, 返回匹配到的节点, 和提取到的参数.
+Match 匹配 URL.Path, 返回匹配到的节点.
+参数:
+	path 待匹配的 URL.Path
+	rec  指定参数接收器, 如果为 nil 表示丢弃参数.
+	rw, req 供 Filter 使用, 如果 Filter 不需要的话, 可以为 nil
+
+返回:
+	成功返回对应的节点, 该节点 GetId() 一定不为 0.
+	失败返回 nil.
 */
-func (t *Trie) Match(path string, rec ParamsReceiver, rw http.ResponseWriter, req *http.Request) *Trie {
+func (t *Trie) Match(path string, rec ParamsReceiver,
+	rw http.ResponseWriter, req *http.Request) *Trie {
 
 	var (
 		i, j     int
@@ -219,11 +219,13 @@ WALK:
 			break
 		}
 
+		slashMax -= t.slash
+
 		if len(t.path) == 0 {
 			// 模式分组
-
+			j = len(path)
 			// path 分段
-			for i = 0; i < len(path); i++ {
+			for i = 0; i < j; i++ {
 				if path[i] == '/' {
 					break
 				}
@@ -235,14 +237,17 @@ WALK:
 				all = path
 			}
 
-			if slashMax <= 0 {
+			if slashMax < 0 {
 				slashMax = slashCount(path[i:])
 			}
 
 			for j = len(t.nodes) - 1; j >= 0; j-- {
 
 				if j != 0 {
-					if !t.nodes[j].catchAll && t.nodes[j].slashMax != slashMax {
+					if !t.nodes[j].catchAll &&
+						t.nodes[j].slashMax != slashMax &&
+						// 有可能 ots
+						t.nodes[j].slashMax != slashMax+1 {
 						continue
 					}
 				}
@@ -276,24 +281,43 @@ WALK:
 
 					if t.nodes[i].path == path[:len(t.nodes[i].path)] {
 
-						t = t.nodes[i]
-						path = path[len(t.path):]
-						continue WALK
+						c = 0
+						path = path[len(t.nodes[i].path):]
 					}
-
 				} else if t.nodes[i].ots {
 					// 未被分割的尾斜线
 
 					if len(t.nodes[i].path) == len(path)+1 &&
 						t.nodes[i].path[:len(path)] == path {
 
-						t = t.nodes[i]
+						c = 0
 						path = ""
-						continue WALK
 					}
 				}
 				break
 			}
+		}
+
+		if c == 0 {
+
+			// see Test_OTS
+			if t.indices[0] == 0 {
+				if t.nodes[0].catchAll {
+
+					catchAll = t.nodes[0]
+					if len(catchAll.path) == 0 &&
+						catchAll.nodes[0].catchAll {
+						catchAll = catchAll.nodes[0]
+					}
+				} else if len(t.nodes[0].path) == 0 &&
+					t.nodes[0].nodes[0].catchAll {
+
+					catchAll = t.nodes[0].nodes[0]
+				}
+			}
+
+			t = t.nodes[i]
+			continue WALK
 		}
 
 		// 失败, 必须含有模式分组, 下标和索引都是 0
@@ -315,7 +339,8 @@ WALK:
 		}
 
 		// path 分段
-		for i = 0; i < len(path); i++ {
+		j = len(path)
+		for i = 0; i < j; i++ {
 			if path[i] == '/' {
 				break
 			}
@@ -333,7 +358,6 @@ WALK:
 	if len(path) == 0 {
 
 		if t.id != 0 {
-			//rec.ParamsNames(t.names)
 			return t
 		}
 
@@ -354,7 +378,6 @@ WALK:
 
 			if t.id != 0 && t.name == "*" {
 				rec.ParamsReceiver("*", "", "")
-				//rec.ParamsNames(t.names)
 				return t
 			}
 		}
@@ -364,21 +387,20 @@ WALK:
 		return nil
 	}
 	rec.ParamsReceiver("*", all, all)
-	//rec.ParamsNames(catchAll.names)
 	return catchAll
 }
 
 /**
-Add 解析 path, 确定叶子节点
-返回值:
+Add 添加路由 pattern 返回相应的节点.
 
-	*Trie 对应的叶子节点, 如果 path 重复, 返回原有节点.
-		此节点可能会被后续根节点增加的节点覆盖, 因此应该及时设置 Id.
-		这意味着 Add 方法非并发安全.
-		调用者应该先判断字段 Id 是否为 0, 确定数据关系.
+参数:
+	path      路由 pattern. 必须以 "/" 开头.
+	newFilter Filter 生成器, 如果为 nil, 用函数 NewFilter 代替.
 
-缺陷:
-	此方法暂时只支持 Trie 为根节点.
+返回:
+	返回对应 path 的节点, 如果 path 重复, 返回原有节点.
+
+注意: 因为 Add 允许重复, 调用者应该先判断 GetId() 是否为 0, 再确定是否要 SetId.
 */
 func (t *Trie) Add(path string, newFilter FilterBuilder) *Trie {
 	var i, j int
@@ -515,6 +537,7 @@ func (t *Trie) Add(path string, newFilter FilterBuilder) *Trie {
 			child.path = t.path[i:]
 			child.nodes = t.nodes
 			child.indices = t.indices
+			child.slash = slashCount(child.path)
 
 			child.catchAll = catchAllOld
 			child.names = t.names
@@ -528,6 +551,7 @@ func (t *Trie) Add(path string, newFilter FilterBuilder) *Trie {
 			t.nodes = []*Trie{child}
 			t.indices = []byte{child.path[0]}
 
+			t.slash = slashCount(t.path)
 			child.slashMax = t.slashMax - t.slash
 		}
 
@@ -561,7 +585,7 @@ func (t *Trie) Add(path string, newFilter FilterBuilder) *Trie {
 			child = new(Trie)
 			child.path = path[:i]
 			child.indices = []byte{} // 不能省略, 判断依据
-			child.slashMax = t.slashMax - slashCount(t.path)
+			child.slashMax = slashCount(path)
 			child.slash = slashCount(child.path)
 			child.catchAll = catchAll
 
@@ -630,10 +654,10 @@ func (t *Trie) Add(path string, newFilter FilterBuilder) *Trie {
 			}
 		}
 
+		// 无需在这里计算 slash, slashMax
 		child = new(Trie)
 		child.path = path[:i]
 		child.perk = newPerk(child.path, newFilter)
-		child.slash = slashCount(child.path)
 		child.catchAll = t.catchAll
 		path = path[i:]
 
@@ -654,27 +678,35 @@ func (t *Trie) Add(path string, newFilter FilterBuilder) *Trie {
 }
 
 /**
-Print 用于调试输出, 便于查看 Trie 的结构.
+Print 输出 Trie 结构信息.
+
 参数:
 	prefix 行前缀
 
+返回:
+	节点下所有路由的数量.
+
 输出格式:
-Id 斜线个数[RPG*] 缩进'path' [子节点首字符]子节点数量 ots names
+
+	id max[RPG*?] 缩进'path'.slash [indices].len names
 
 其中:
-	R 表示路由
-	P 表示模式节点
-	G 表示模式分组
-	* 表示自己或者下属节点是否 catchAll
-	ots 是否尾斜线匹配
-	names 是参数名 map
+	max     此分支内最大斜线个数
+	R       表示路由, GetId() 非 0.
+	P       表示模式节点
+	G       表示模式分组
+	*       表示节点或下属节点含有 "/**" 模式.
+	?       尾斜线匹配. "/?"
+	.slash  节点 path 分段中的斜线数量
+	indices 子节点首字符组成的索引.
+	.len    子节点数量
+	names   是参数名 map.
 
-返回:
-	所属节点的路由数量, Trie.GetId() 为 1 会打印此值.
+
 */
 func (t *Trie) Print(prefix string) (count int) {
 
-	info := []byte{' ', ' ', ' ', ' '}
+	info := []byte{' ', ' ', ' ', ' ', ' '}
 
 	if t.id != 0 {
 		info[0] = 'R'
@@ -689,12 +721,15 @@ func (t *Trie) Print(prefix string) (count int) {
 	if t.catchAll {
 		info[3] = '*'
 	}
+	if t.ots {
+		info[4] = '?'
+	}
 
-	fmt.Printf("%4d %3d[%v] %s'%s' [%s]%d %v %v\n", t.id,
+	fmt.Printf("%4d %3d[%v] %s'%s'.%d [%s]%d %v\n", t.id,
 		t.slashMax, string(info),
-		prefix, t.path,
+		prefix, t.path, t.slash,
 		string(t.indices), len(t.nodes),
-		t.ots, t.names,
+		t.names,
 	)
 
 	for l := len(t.path); l >= 0; l-- {
@@ -703,9 +738,8 @@ func (t *Trie) Print(prefix string) (count int) {
 	for _, child := range t.nodes {
 		count += child.Print(prefix)
 	}
-
-	if t.id == 1 {
-		fmt.Printf("\nRoutes: %d\nid slash[RPG*] 'path' [indices].len ots names\n\n", count)
+	if 2 == len(prefix) {
+		fmt.Printf("\nRoutes: %d\n  id max[RPG*?] 'path' [indices].len names\n\n", count)
 	}
 	return count
 }

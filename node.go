@@ -37,11 +37,11 @@ func (n *node) Apply(c Context) {
 	if n == nil {
 
 		if c == nil {
-			panic("rivet: internal error, *base is nil")
+			panic("rivet: internal error, Node is nil")
 		}
 
 		req := c.Request()
-		panic("rivet: internal error, *base is nil for " +
+		panic("rivet: internal error, Node is nil from " +
 			req.Method + " \"" + req.Host + req.URL.Path + "\"")
 	}
 

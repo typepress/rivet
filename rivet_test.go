@@ -170,11 +170,18 @@ func Test_HasParams(t *testing.T) {
 	}
 }
 
+var debug = false
+
 var otsRoutes = []string{
-	"GET", "/:mad uint/?", "/12387",
-	"GET", "/:mad uint/?", "/12387/",
-	"GET", "/catch/all/?", "/catch/all",
-	"GET", "/catch/all/?", "/catch/all/",
+	"/:mad uint/?", "/12387",
+	"/:mad uint/?", "/12387/",
+	"/catch/all/?", "/catch/all",
+	"/catch/all/?", "/catch/all/",
+	"/hi", "/hi",
+	"/hi*", "/hihi",
+	"/hi*/?", "/hihi",
+	"/hi*/hi/?", "/hi/hi",
+	"/**", "/hi/hihi",
 }
 
 func Test_OTS(t *testing.T) {
@@ -182,34 +189,36 @@ func Test_OTS(t *testing.T) {
 	mux := NewRouter(nil)
 
 	i := 0
-	for i = 0; i < len(routes); i += 3 {
-		method, urlPath := routes[i], routes[i+1]
+	for i = 0; i < len(routes); i += 2 {
+		urlPath := routes[i]
 		recv := catchPanic(func() {
-			mux.Handle(method, urlPath)
+			mux.Get(urlPath)
 		})
 
 		if recv != nil {
 			t.Fatalf("panic Handle '%s': %v", urlPath, recv)
 		}
 	}
-	// mux.RootTrie("GET").Print("")
-	for i := 0; i < len(routes); i += 3 {
+	root := mux.RootTrie("GET")
+	//root.Print("")
+	for i := 6; i < len(routes); i += 2 {
 
 		p := newDebugParams()
-		method, urlPath := routes[i], routes[i+2]
+		urlPath := routes[i+1]
 
-		node := mux.Match(method, urlPath, p, nil, nil)
+		trie := root.Match(urlPath, p, nil, nil)
 
-		if node.Id() == 0 {
+		if trie.GetId() == 0 {
 			t.Fatalf("NotFound : %s", urlPath)
 		}
-		if i < 2 && len(p.maps) == 0 {
-			t.Fatal("want Params , but got nil:", node.Id(), urlPath)
+		if i < 4 && len(p.maps) == 0 {
+			t.Fatal("want Params , but got nil:", trie.id, urlPath)
 		}
 		if p.diff != 0 {
 			t.Fatalf("NotFound : params received to more %s", urlPath)
 		}
 	}
+
 }
 
 var zRoutes = []string{

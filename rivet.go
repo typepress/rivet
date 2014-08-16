@@ -5,50 +5,37 @@ import (
 	"net/http"
 )
 
-// Params
+/**
+Params 存储从 URL.Path 中提取的参数.
+值可能经过 Filter 转换.
+*/
 type Params map[string]interface{}
 
 // Get 返回 key 所对应值的字符串形式
-func (p Params) Get(key string) string {
+func (p Params) Get(key string) (s string) {
 
 	i, ok := p[key]
 
 	if !ok {
-		return ""
+		return
 	}
 
-	s, ok := i.(string)
+	s, ok = i.(string)
 	if ok {
-		return s
+		return
 	}
 
 	return fmt.Sprint(i)
 }
 
-// ParamsReceiver 逐个接受路由匹配提取到的参数.
-func (p Params) ParamsReceiver(key, text string, val interface{}) {
+// ParamsReceiver 逐个接受从 URL.Path 中提取的参数.
+func (p Params) ParamsReceiver(key, _ string, val interface{}) {
 	p[key] = val
 }
 
 /**
-// ParamsNames 接收合法的参数名
-func (p Params) ParamsNames(names map[string]bool) {
-	if len(p) != len(names) {
-		clear := len(names) == 0
-		for k, _ := range p {
-
-			if clear || !names[k] {
-				delete(p, k)
-			}
-		}
-	}
-}
-*/
-
-/**
-PathParams 存储原始的 URL.Path 参数.
+PathParams 存储从 URL.Path 中提取的原始参数.
 与 Scene/NewScene 配套使用.
-PathParams 符合 ParamsReceiver 接口.
 */
 type PathParams map[string]string
 
@@ -57,54 +44,23 @@ func (p PathParams) Get(key string) string {
 	return p[key]
 }
 
-/**
-// ParamsNames 接收合法的参数名
-func (p PathParams) ParamsNames(names map[string]bool) {
-	if len(p) != len(names) {
-		clear := len(names) == 0
-		for k, _ := range p {
-
-			if clear || !names[k] {
-				delete(p, k)
-			}
-		}
-	}
-}
-*/
-
-// ParamsReceiver 逐个接受路由匹配提取到的参数.
-func (p PathParams) ParamsReceiver(key, text string, val interface{}) {
+// ParamsReceiver 逐个接受从 URL.Path 中提取的原始参数.
+func (p PathParams) ParamsReceiver(key, text string, _ interface{}) {
 	p[key] = text
 }
 
 /**
-ParamsReceiver 接收 URL.Path 参数.
-路由匹配过程中, 当提取到参数时, 会调用参数接收函数.
-事实上实例函数作为参数传递给 Trie.Match, 由 Trie.Match 调用.
+ParamsReceiver 接收从 URL.Path 中提取的参数.
 */
 type ParamsReceiver interface {
 	/**
-	ParamsReceiver 接收参数.
-	过滤前, 要先接收参数. 路由匹配时, 每此提取到一个参数就被调用一次.
+	ParamsReceiver 逐个接受参数.
 	参数:
-		name  参数名, "*" 代表 catch-All 模式的名字
-		text URL.Path 中的原值.
+		name 参数名, "*" 代表 catch-All 模式的名字
+		text URL.Path 中的原始值.
 		val  经 Filter 处理后的值.
 	*/
 	ParamsReceiver(name, text string, val interface{})
-
-	/**
-	此功能调试 bug 用
-	ParamsNames 接收路由原定义中的参数名.
-	路由匹配时可能发生回溯, ParamsReceiver 可能接收到多余的参数.
-	匹配最后把有效的参数名回传给 ParamsNames 用于过滤参数.
-	参数:
-		names  以 map[string]bool 形式, name 作为 key 存储.
-		此参数有可能为 nil. 表示原 pattern 中无参数可提取.
-
-	匹配成功, 此方法总是被调用. ParamsNames 不应该更改 names.
-	*/
-	//ParamsNames(names map[string]bool)
 }
 
 /**
@@ -117,24 +73,22 @@ func (rec ParamsFunc) ParamsReceiver(key, text string, val interface{}) {
 }
 
 /**
-Filter 过滤转换 URL.Path 参数.
+Filter 检验, 转换 URL.Path 参数, 亦可过滤 http.Request.
 */
 type Filter interface {
 	/**
-	Filter 检验 URL.Path 中的某一段参数.
-	参数 text:
-		路由实例: "/blog/cat:id num 6"
-			"id" 为参数名, "num" 为类型名, "6" 是参数.
-		URL 实例: "/blog/cat3282"
-			传递给 Filter 的参数是字符串 "3282".
-			Filter 无需知道参数名, 另外处理.
+	Filter
+	参数 text 举例:
+		有路由规则 "/blog/cat:id num 6".
+		实例 URL.Path "/blog/cat3282" 需要过滤.
+		text 参数值是字符串 "3282".
 
 	参数 rw, req:
 		Filter 可能需要 req 的信息, 甚至直接写 rw.
 
 	返回值:
-		interface{} 通过检查/转换后的数据
-		bool 值表示参数是否通过过滤器.
+		interface{} 通过检查/转换后的数据.
+		bool 值表示是否通过过滤器.
 	*/
 	Filter(text string,
 		rw http.ResponseWriter, req *http.Request) (interface{}, bool)
@@ -154,10 +108,10 @@ func (filter FilterFunc) Filter(text string,
 /**
 FilterBuilder 是 Filter 生成器.
 参数:
-	className 为 Filter 类型名.
-	args      为参数.
+	class 为 Filter 类型名.
+	args  为参数.
 */
-type FilterBuilder func(className string, args ...string) Filter
+type FilterBuilder func(class string, args ...string) Filter
 
 /**
 Riveter 是 Context 生成器.
@@ -165,28 +119,28 @@ Riveter 是 Context 生成器.
 type Riveter func(http.ResponseWriter, *http.Request) Context
 
 /**
-Context 关联变量到 Request 上下文, 并调用 Handler.
-事实上 Context 采用的是 All-In-One 的设计方式.
-实现有可能未完成所有接口.
+Context 是 Request 上下文, 主要负责关联变量并调用 Handler.
+事实上 Context 采用 All-In-One 的设计方式,
+具体实现不必未完成所有接口, 使用方法配套即可.
 */
 type Context interface {
-	// Context 要实现参数接收器
+	// Context 要实现参数接收器.
 	ParamsReceiver
-	// Request 返回生成 Context 的 *http.Request
+	// Request 返回生成 Context 的 *http.Request.
 	Request() *http.Request
 
-	// Response 返回生成 Context 的 http.ResponseWriter
+	// Response 返回生成 Context 的 http.ResponseWriter.
 	Response() http.ResponseWriter
 
-	// WriteString 方便向 http.ResponseWriter 写入 string.
+	// WriteString 向 http.ResponseWriter 写入 data.
 	WriteString(data string) (int, error)
 
-	//	GetParams 返回路由匹配时从 URL.Path 中提取的参数
+	//	GetParams 返回路由匹配时从 URL.Path 中提取的参数.
 	GetParams() Params
 
 	/**
-	PathParams 返回路由匹配时从 URL.Path 中提取的参数
-	PathParams 需要与 Scene/NewScene 配套使用.
+	PathParams 返回路由匹配时从 URL.Path 中提取的原始参数.
+	需要与 Scene/NewScene 配套使用.
 	*/
 	GetPathParams() PathParams
 
@@ -224,7 +178,7 @@ Node 保存路由 Handler, 并调用 Context 的 Handlers 和 Next 方法.
 type Node interface {
 	/**
 	Riveter 设置 Riveter.
-	此方法使得 Node 可以使用不同的 Context.
+	此方法让 Node 可以拥有单独 Context.
 	*/
 	Riveter(riveter Riveter)
 
@@ -235,13 +189,13 @@ type Node interface {
 
 	/**
 	Apply 调用 Context 的 Handlers 和 Next 方法.
-	如果设置了 Riveter, 使用 Riveter 生成新 Context.
+	如果设置了 Riveter, 可使用生成独立的 Context.
 	*/
 	Apply(context Context)
 
 	/**
 	Id 返回 Node 的识别 id, 0 表示 NotFound 节点.
-	此 id 在生成的时候确定.
+	此值由 NodeBuilder 确定.
 	*/
 	Id() int
 }

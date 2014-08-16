@@ -15,14 +15,14 @@ FilterClass 保存 Fliter 生成器, 使用者可注册新的生成器.
 	alpha   [a-zA-Z]+
 	alnum   [a-zA-Z]+[0-9]+
 	hex     [a-z0-9]+
-	uint    uint 可以接收 strconv.ParseUint 的 bitSize 参数
+	uint    uint 可以使用 strconv.ParseUint 的 bitSize 参数
 
-其中: string, alpha, alnum, hex 都可以加最大长度限制参数, 如:
-	":name string 10" 限制参数字符串字节长度不能超过 10
+其中: string, alpha, alnum, hex 可以加一个长度限制参数, 如:
+	":name string 10" 限制参数字符串字节长度不超过 10.
 */
 var FilterClass = map[string]FilterBuilder{
-	"":       builtinFilter, // 只是占位, 实际不被调用
-	"*":      builtinFilter, // 只是占位, 实际不被调用
+	"":       builtinFilter, // 只是占位, 实际被优化, 不使用
+	"*":      builtinFilter, // 只是占位, 实际被优化, 不使用
 	"string": builtinFilter,
 	"alpha":  builtinFilter,
 	"alnum":  builtinFilter,
@@ -32,7 +32,7 @@ var FilterClass = map[string]FilterBuilder{
 
 /**
 NewFilter 是缺省的 FilterBuilder.
-通过调用 FilterClass 中 Key 为 class 的 FilterBuilder 生成一个 Filter.
+通过调用 FilterClass 中与 class 对应的 FilterBuilder 生成一个 Filter.
 如果相应的 FilterBuilder 或生成的 Filter 为 nil, 发生 panic.
 */
 func NewFilter(class string, args ...string) Filter {
