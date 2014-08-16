@@ -1,7 +1,7 @@
 Rivet
 =====
 
-[![Go Walker](//gowalker.org/api/v1/badge)](//gowalker.org/github.com/typepress/rivet) [![status](//sourcegraph.com/api/repos/github.com/typepress/rivet/.badges/status.png)](https://sourcegraph.com/github.com/typepress/rivet)
+[![Go Walker](http://gowalker.org/api/v1/badge)](http://gowalker.org/github.com/typepress/rivet) [![status](https://sourcegraph.com/api/repos/github.com/typepress/rivet/.badges/status.png)](https://sourcegraph.com/github.com/typepress/rivet)
 
 专注路由.
 [简洁](#简洁), [贪心匹配](#贪心匹配), [支持注入](#注入), [可定制](#定制), [深度解耦](#深度解耦)的 http 路由管理器.
