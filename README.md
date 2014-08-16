@@ -86,7 +86,7 @@ mux.Get("/users/:user/events/orgs/:org", Events)
 
 因为都用 Events 函数作为 handler,  可以这样写:
 ```go
-func Events(params rivet.Params, rw http.ResponsWriter) {
+func Events(params rivet.Params, rw http.ResponseWriter) {
     user := params.Get("owner")
     if user == "github" {
         // 用户 github 很受欢迎, 需要特别处理
@@ -191,7 +191,7 @@ func UserRole(c rivet.Context) {
 /**
 DelComments 删除评论, role 参数由前面的 UserRole 注入上下文.
 */
-func DelComments(role Role, params rivet.Params, rw http.ResponsWriter) {
+func DelComments(role Role, params rivet.Params, rw http.ResponseWriter) {
     if role == "" {
         // 拒绝游客
         rw.WriteHeader(http.StatusForbidden)
@@ -216,9 +216,9 @@ func main() {
 }
 ```
 
-这个例子中, `"/del/comments/:id"` 被匹配后, 先执行 UserRole, 把用户角色关联到 Context, 因为 UserRole 没有对 http.ResponsWriter 进行写操作, DelComments 会被执行. Rivet 负责传递 DelComments 需要的参数 UserRole 等. DelComments 获得 role 变量进行相应的处理, 完成角色控制.
+这个例子中, `"/del/comments/:id"` 被匹配后, 先执行 UserRole, 把用户角色关联到 Context, 因为 UserRole 没有对 http.ResponseWriter 进行写操作, DelComments 会被执行. Rivet 负责传递 DelComments 需要的参数 UserRole 等. DelComments 获得 role 变量进行相应的处理, 完成角色控制.
 
-*提示: 如果 Rivet 发现 ResponsWriter 写入任何内容, 认为响应已经完成, 不再执行后续 handler*
+*提示: 如果 Rivet 发现 ResponseWriter 写入任何内容, 认为响应已经完成, 不再执行后续 handler*
 
 定制
 ====
@@ -511,7 +511,7 @@ import (
 params 类型为 PathParams, 是从 URL.Path 中提取到的参数.
 PathParams 和 Scene 配套使用.
 */
-func Hi(params rivet.PathParams, rw http.ResponsWriter) {
+func Hi(params rivet.PathParams, rw http.ResponseWriter) {
     io.WriteString(rw, "Hi "+params["who"])
 }
 
