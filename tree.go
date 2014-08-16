@@ -242,10 +242,7 @@ WALK:
 			for j = len(t.nodes) - 1; j >= 0; j-- {
 
 				if j != 0 {
-					if t.nodes[j].slashMax > slashMax {
-						continue
-					}
-					if !t.nodes[j].catchAll && t.nodes[j].slashMax < slashMax {
+					if !t.nodes[j].catchAll && t.nodes[j].slashMax != slashMax {
 						continue
 					}
 				}
@@ -671,13 +668,17 @@ Id 斜线个数[RPG*] 缩进'path' [子节点首字符]子节点数量 ots names
 	* 表示自己或者下属节点是否 catchAll
 	ots 是否尾斜线匹配
 	names 是参数名 map
+
+返回:
+	所属节点的路由数量, Trie.GetId() 为 1 会打印此值.
 */
-func (t *Trie) Print(prefix string) {
+func (t *Trie) Print(prefix string) (count int) {
 
 	info := []byte{' ', ' ', ' ', ' '}
 
 	if t.id != 0 {
 		info[0] = 'R'
+		count++
 	}
 	if t.perk != nil {
 		info[1] = 'P'
@@ -689,7 +690,7 @@ func (t *Trie) Print(prefix string) {
 		info[3] = '*'
 	}
 
-	fmt.Printf("%4d %2d[%v] %s'%s' [%s]%d %v %v\n", t.id,
+	fmt.Printf("%4d %3d[%v] %s'%s' [%s]%d %v %v\n", t.id,
 		t.slashMax, string(info),
 		prefix, t.path,
 		string(t.indices), len(t.nodes),
@@ -700,6 +701,11 @@ func (t *Trie) Print(prefix string) {
 		prefix += " "
 	}
 	for _, child := range t.nodes {
-		child.Print(prefix)
+		count += child.Print(prefix)
 	}
+
+	if t.id == 1 {
+		fmt.Printf("\nRoutes: %d\nid slash[RPG*] 'path' [indices].len ots names\n\n", count)
+	}
+	return count
 }

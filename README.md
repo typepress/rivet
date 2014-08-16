@@ -1,20 +1,23 @@
 Rivet
 =====
 
-[![Go Walker](http://gowalker.org/api/v1/badge)](http://gowalker.org/github.com/typepress/rivet)
+[![Go Walker](//gowalker.org/api/v1/badge)](//gowalker.org/github.com/typepress/rivet) [![status](//sourcegraph.com/api/repos/github.com/typepress/rivet/.badges/status.png)](https://sourcegraph.com/github.com/typepress/rivet)
 
-简洁, 超强路由, 支持注入, 可定制, 深度解耦的 http 路由管理器.
+专注路由.
+[简洁](#简洁), [贪心匹配](#贪心匹配), [支持注入](#注入), [可定制](#定制), [深度解耦](#深度解耦)的 http 路由管理器.
 
-Rivet 专注路由相关功能, 未来不会增加非路由相关的功能.
+[examples][] 目录中有几个例子, 方便您了解 Rivet.
 
-任何问题, 分享可至 [issues](issues) , [wiki](wiki) 
+任何问题, 分享可至 [issues](/typepress/rivet/issues) , [wiki](/typepress/rivet/wiki) 
+
+这里有个路由专项评测 [go-http-routing-benchmark][benchmark].
 
 简洁
 ====
 
-Rivet 使用和常规风格一致.
+Rivet 使用常规风格.
 
-示例: 运行此代码后点击 [这里](http://127.0.0.1:3000/Rivet)
+示例: 复制到本地运行此代码, 然后后点击 [这里](http://127.0.0.1:3000/Rivet)
 
 ```go
 package main
@@ -32,10 +35,11 @@ func HelloWord(rw http.ResponseWriter, req *http.Request) {
 }
 
 /**
-带参数的 handler
-params 是从 URL.Path 中提取到的参数
+带参数的 handler.
+params 是从 URL.Path 中提取到的参数.
+params 的另一种风格是 PathParams/Scene. 参见 Scene.
 */
-func Hi(params rivet.Params, rw http.ResponsWriter) {
+func Hi(params rivet.Params, rw http.ResponseWriter) {
     io.WriteString(rw, "Hi "+params.Get("who")) // 提取参数 who
 }
 
@@ -53,7 +57,7 @@ func main() {
 }
 ```
 
-上例中 `"/"` 是无 URL.Path 参数路由. `"/:who"` 是有参数的, 参数名为 "who".
+上例中 `"/"` 是无参数路由. `"/:who"` 是有参数路由, 参数名为 "who".
 
 访问 "/" 输出:
 ```
@@ -72,13 +76,13 @@ Hi Girl
 
 访问 "/news/sports" 会得到 404 NotFound 页面.
 
-下面以 api.github.com 真实路由为例:
+以 api.github.com 真实路由为例:
 ```go
 mux.Get("/users/:user/events", Events)
 mux.Get("/users/:user/events/orgs/:org", Events)
 ```
 
-因为都用同一个 handler, Events 可以这样写:
+因为都用 Events 函数作为 handler,  可以这样写:
 ```go
 func Events(params rivet.Params, rw http.ResponsWriter) {
     user := params.Get("owner")
@@ -105,31 +109,34 @@ mux.Get("/users/:user/events", userEvents)
 mux.Get("/users/:user/events/orgs/:org", userOrgEvents)
 ```
 
-超强路由
+*提示: 如果 Params 类型不适合您, 请看 [Scene](#scene) 部分.*
+
+贪心匹配
 ========
 
-通常 Router 库都能支持静态路由, 参数路由, 可选尾部斜线, Rivet 也同样支持, 而且支持的更好. 下面这些路由并存, 同样能正确匹配:
+通常 Router 库都能支持静态路由, 参数路由, 可选尾部斜线等, Rivet 也同样支持, 而且做的更好. 下面这些路由并存, 同样能正确匹配:
 
 ```
 "/",
+"/**",
 "/hi",
 "/hi/**",
 "/hi/path/to",
 "/hi/:name/to",
 "/:name",
-"/:name/path",
+"/:name/path/?",
 "/:name/path/to",
 "/:name/path/**",
 "/:name/**",
 ```
 
-即便如此, 还会有这些路不能并存. 比如在上面的路由中加入:
+当 URL.Path 为
 ```
-"/**"
+"/xx/zzz/yyy"
 ```
 
-是无法正确匹配 URL.Path `"/xx/zzz/yyy"` 的, 因为已经进入 `"/:name/**"`, 
- `**"` 深层嵌套使问题的解决成本过高, 使用时避免这种用法即可. 后文详细介绍路由风格.
+时 `"/:name/**` 会被匹配, 它的层级比较深, 这符合贪心匹配原则.
+使用者有可能困惑, 因为 `"/**"` 和 `"/:name/**"` 都可以匹配 `"/xx/zzz/yyy"`. 记住贪心匹配原则, 否则避免这种用法即可. 后文会详细介绍路由风格.
 
 注入
 ====
@@ -147,16 +154,14 @@ rivet.Context 支持注入(Injector), 有三个关键方法:
     Map(v interface{})
 ```
 
-实际中的需求更复杂, 比如不同用户在相同 URL.Path 下有不同响应, 用户角色控制.
-使用注入后会很简单.
+现实中会有一些需求, 比如服务器对不同用户在相同 URL.Path 下有不同响应, 也就是用户角色控制. 使用注入后会很简单.
 
 ```go
-// 用户角色, 示意, 简单的定义为 string
+// 用户角色控制示意, 简单的定义为 string
 type Role string
 
 /**
-使用注入的方法确定用户角色.
-只需要给 handler 一个 rivet.Context 参数就可以使用注入.
+在 handler 函数中加上 rivet.Context 参数即可用注入标记用户角色,
 */
 func UserRole(c rivet.Context) {
     // Context.Request() 返回 *http.Request
@@ -165,7 +170,10 @@ func UserRole(c rivet.Context) {
     // 通常根据 session 确定用户角色.
     session := req.Cookie("session").Value
 
-    // 这里只是示意代码, 现实中不可能这么做.
+    /**
+    这里只是示意代码, 现实中的逻辑更复杂.
+    用注入函数 Map, 把用户角色关联到上下文.
+    */
     switch session {
     default: // 游客
         c.Map(Role(""))
@@ -179,7 +187,7 @@ func UserRole(c rivet.Context) {
 }
 
 /**
-DelComments 删除评论, 需要的参数由前面的 UserRole 准备.
+DelComments 删除评论, role 参数由前面的 UserRole 注入上下文.
 */
 func DelComments(role Role, params rivet.Params, rw http.ResponsWriter) {
     if role == "" {
@@ -197,20 +205,24 @@ func DelComments(role Role, params rivet.Params, rw http.ResponsWriter) {
     // 其他角色,需要更多的判断
     // do something
 }
+
+func main() {
+    // ...
+    //注册路由:
+    mux.Get("/del/comments/:id", UserRole, DelComments)
+    // ...
+}
 ```
 
-注册路由:
-```go
-mux.Get("/del/comments/:id", UserRole, DelComments)
-```
+这个例子中, `"/del/comments/:id"` 被匹配后, 先执行 UserRole, 把用户角色关联到 Context, 因为 UserRole 没有对 http.ResponsWriter 进行写操作, DelComments 会被执行. Rivet 负责传递 DelComments 需要的参数 UserRole 等. DelComments 获得 role 变量进行相应的处理, 完成角色控制.
 
-这个例子中, `"/del/comments/:id"` 被匹配后, 先执行 UserRole, 把用户角色关联到 Context, 因为 UserRole 没有对 http.ResponsWriter 进行写操作, DelComments 被执行.
+*提示: 如果 Rivet 发现 ResponsWriter 写入任何内容, 认为响应已经完成, 不再执行后续 handler*
 
 定制
 ====
 
 事实上, 上例中的 UserRole 很多地方都要用, 每次注册路由都带上 UserRole 很不方便.
-通常 UserRole 是在路由匹配之前以先执行. 可以这样用:
+通常在路由匹配之前执行 UserRole. 可以这样用:
 
 ```go
 // 定义自己的 rivet.Context 生成器
@@ -232,12 +244,14 @@ func main() {
 }
 ```
 
-其他方法也很多, 这只是最简单的一种.
+方法也很多, 这只是最简单的一种.
+
+*提示: 善用 [Filter][] 可真正起到滤器请求的作用.*
 
 深度解耦
 ========
 
-解耦可以让应用切入到 Rivet 执行路由流程中的每一个环节, 达到高度定制. Rivet 在不失性能的前提下, 对解耦做了很多努力. 了解下列 Rivet 的设计接口有助于定制您自己的路由规则.
+解耦使应用能切入到路由执行流程中的每一个环节, 达到高度定制. Rivet 在不失性能的前提下, 对解耦做了很多努力. 了解 Rivet 的类型和接口有助于深度定制路由流程.
 
 * [Params][] 保存 URL.Path 中的参数
 * [Filter][] 检查/转换 URL.Path 参数, 亦可过滤请求.
@@ -247,45 +261,47 @@ func main() {
 * [Context][] 维护上下文, 处理 handler. 内置 Rivet 实现了它.
 * [Router][] 路由管理器, 把上述对象联系起来, 完成路由功能.
 
-他们是如何解耦的:
+他们是如何解耦:
 
-Params 和其他无关, 无其它依赖, 唯一的约束是有固定的类型定义.
+Params 无其它依赖, 有 PathParams 风格可选. 自定义 [ParamsReceiver][] 定制.
 
-Filter 接口无其它依赖, 还有便捷 FilterFunc 形式.
+Filter 接口无其它依赖. 自定义 [FilterBuilder][] 定制.
 
-Node 接口依赖 Context.
+Node 接口依赖 Context. 自定义 [NodeBuilder][] 定制.
 
-Trie 依赖 Filter 接口, 是路由匹配的核心. 生成 Params 用的独立函数接口 ParamsReceiver, ParamsReceiver 无其它依赖, 甚至和 Params 也无关.
+Trie 是路由匹配的核心, 依赖 Filter, ParamsReceiver. 它们都可定制.
 
-Context 接口依赖 ParamsReceiver, 间接来说也是无依赖的. 但是 Context 用了注入, 可能您的应用并不需要注入.
+Context 接口依赖 ParamsReceiver, 这只是个函数, 最终也是无依赖的. Context 用了注入, 可能您的应用并不需要注入, 不用它即可.
 
-Rivet 是内置的 Context 实现, 是个 struct, 可以扩展. 并且接口丰富.
+[Rivet][] 是内置的 Context 实现, 是个 struct, 可以扩展.
 
-Router 依赖上述所有. 可以通过两个函数 NodeBuilder 和 Riveter 定制自己的 Node, Context.
+*提示: 注入是透明的, 不使用不产生开销, 使用了开销也不高.*
 
-因此大概有分两种深度使用级别:
+Router 依赖上述所有. 了解函数类型 [NodeBuilder][] 和 [Riveter][] 定制自己的 Node, Context.
+
+定制使用大概分两类:
 
     底层: 直接使用 Trie, 构建自己的 Node, ParamsReceiver, Context, Router.
+          需要了解 TypeIdOf, NewContext, NewNode, ParamsFunc, FilterFunc.
     扩展: 使用 Router, 自定义 Context 生成器, 或者扩展 Rivet.
 
-    深度使用, 这有几个函数和类型需要您了解.
-    TypeIdOf, NewContext, NewNode, ParamsFunc, FilterFunc,
+*提示: 底层定制 Trie 需要 FilterBuilder, 如果 Path 参数无类型. 直接用 nil 替代, Trie 可以正常工作.*
 
-虽然底层使用仍然依赖 Filter, 需要传递 FilterBuilder, 如果您的路由 Path 不含有复杂的参数匹配. 直接用 nil 替代即可. 本文不展示底层使用示例.
+下文展示扩展定制方法.
 
 自定义 Context 生成器:
 ```go
-// 自定义 Context 生成器
+// 自定义 Context 生成器, 实现真正的 http.Flusher
 func MyRiveter(rw http.ResponseWriter, req *http.Request) rivet.Context {
 
-    // 构建自己的 rw,  比如实现一个真正的 http.Flusher
+    // 构建自己的 http.Flusher
     rw = MyResponseWriterFlusher(rw) 
     c := new(rivet.NewContext(rw, req)) // 依旧使用 rivet.Rivet
     return c
 }
 ```
 
-rivet 内置的 ResponseWriteFakeFlusher 是个伪 http.Flusher, 只是有个 Flus() 方法, 并没有真的实现 http.Flusher 功能. 如果您需要真正的 Flusher 需要自己实现.
+rivet 内置的 ResponseWriteFakeFlusher 是个伪 http.Flusher, 只是有个 Flush() 方法, 没有真的实现 http.Flusher 功能. 如果您需要真正的 Flusher 需要自己实现.
 
 实现自己的 Context 很容易, 善用 Next 和 Invoke 方法即可.
 
@@ -293,7 +309,7 @@ rivet 内置的 ResponseWriteFakeFlusher 是个伪 http.Flusher, 只是有个 Fl
 
 ```go
 /**
-扩展 Context, 实现 Before.
+扩展 Context, 实现 Before Handler.
 */
 type MyContext struct {
     rivet.Context
@@ -313,7 +329,7 @@ func MyRiveter(res http.ResponseWriter, req *http.Request) rivet.Context {
 
 func (c *MyContext) Next() {
     if !beforeIsRun {
-        // 执行 Before 处理
+        // 执行 Before Handler
         // do something
         beforeIsRun = true
     }
@@ -335,29 +351,29 @@ func Observer(c rivet.Context) {
 }
 
 /**
-MyInvoke 是个 Handler, 执行时可以调用 Context.Invoke. 例如:
-插入执行 SendStaticFile, 这和直接调用 SendStaticFile 不同.
-这样的 SendStaticFile 可以使用上下文关联变量
+调用 Context.Invoke, 插入执行另外的 handler.
+MyInvoke 插入执行 SendStaticFile, 这和直接调用 SendStaticFile 不同.
+这样的 SendStaticFile 可以使用上下文关联变量, 就像上文讲的角色控制.
+而 MyInvoke 不必关心 SendStaticFile 所需要的参数, 那可以由别的代码负责.
 */
 func MyInvoke(c rivet.Context) {
     c.Invoke(SendStaticFile)
 }
 
 /**
-发送静态文件, 参数 root 是前期执行的某个 Handler 关联好的.
+发送静态文件, 参数 root 是前期代码关联好的.
 现实中简单的改写 req.URL.Path, 无需 root 参数也是可行的.
 */
 func SendStaticFile(root http.Dir, rw http.ResponseWriter, req *http.Request) {
     // send ...
 }
-
 ```
 
 
 路由风格
 ========
 
-Rivet 对路由 pattern 的支持很丰富.
+Rivet 对路由 pattern 支持丰富.
 
 示例:
 ```
@@ -381,7 +397,6 @@ Rivet 对路由 pattern 的支持很丰富.
 "/news/health/1024"
 ```
 
-当然您可以把这两条路由都注册到 Router, 它们会被正确匹配.
 上面的路由只有参数名, 数据类型都是 string. Rivet 还支持带类型的 pattern.
 
 示例:
@@ -389,9 +404,9 @@ Rivet 对路由 pattern 的支持很丰富.
 "/news/:cat/:id uint"
 ```
 
-uint 是内置的 class, 参见 [FilterClass][].
+":id uint" 表示参数名是 "id", 数据要符合 "uint" 的要求.
 
-":id uint" 表示参数名是 "id", 数据必须是 uint 字符串.
+"uint" 是内置的 Filter class, 参见 [FilterClass][], 您可以注册新的 class.
 
 示例: 可选尾斜线
 ```
@@ -404,7 +419,7 @@ uint 是内置的 class, 参见 [FilterClass][].
 "/news/"
 ```
 
-"/?" 只能在尾部出现.
+*提示: "/?" 只能在尾部出现*.
 
 除了可选尾斜线, 路由风格可归纳为:
 
@@ -413,7 +428,7 @@ uint 是内置的 class, 参见 [FilterClass][].
 ```
 
 其中 "path", "to","prefix" 是占位符, 表示固定字符, 称为定值.
-":pattern" 表示匹配模式, 格式为:
+":pattern" 格式为:
 
 ```
 :name class arg1 arg2 argN
@@ -456,10 +471,16 @@ uint 是内置的 class, 参见 [FilterClass][].
     "/path/to/**"
 ```
 
+*提示: 含有 class 才会生成 Filter, 否则被优化处理*
+
+您也许注意到, 这里没有正则, 自定义 Filter 怎么执行由定制者控制, 包括正则.
+
+*提示: 正则中不能含有 "/".*
+
 Scene
 =====
 
-路由风格支持类型, Filter 检查时可能需要对数据进行类型转换, interface{} 方便保存转换后的结果, 避免后续代码再次转换, 所以 Params 定义成这样:
+路由风格支持带类型的参数, Filter 检查时可能会对参数进行类型转换, interface{} 方便保存转换后的结果, 后续代码无需再次检查转换, 所以 Params 定义成这样:
 
 ```go
 type Params map[string]interface{}
@@ -485,8 +506,8 @@ import (
 )
 
 /**
-带 PathParams 参数的 handler
-params 是从 URL.Path 中提取到的参数
+params 类型为 PathParams, 是从 URL.Path 中提取到的参数.
+PathParams 和 Scene 配套使用.
 */
 func Hi(params rivet.PathParams, rw http.ResponsWriter) {
     io.WriteString(rw, "Hi "+params["who"])
@@ -494,7 +515,7 @@ func Hi(params rivet.PathParams, rw http.ResponsWriter) {
 
 func main() {
     
-    // 传递 NewScene, handler 可以采用 PathParams 风格
+    // 传递 NewScene, 采用 PathParams 风格
     mux := rivet.NewRouter(rivet.NewScene)
 
     mux.Get("/:who", Hi) // 参数名设定为 "who"
@@ -503,8 +524,7 @@ func main() {
 }
 ```
 
-注意 PathParams 只能和 NewScene 配套使用. 事实上 Context 采用的是 All-In-One 的设计方式, 实现有可能未完成所有接口, 使用方式对应变更即可.
-
+*提示: PathParams 和 NewScene 配套使用. 事实上 Context 采用的是 All-In-One 的设计方式, 具体实现不必未完成所有接口, 使用方法配套即可.*
 
 Acknowledgements
 ================
@@ -522,13 +542,20 @@ Use of this source code is governed by a BSD-style
 license that can be found in the LICENSE file.
 
 
-[Node]: https://gowalker.org/github.com/typepress/rivet#Node
-[Filter]: https://gowalker.org/github.com/typepress/rivet#Filter
-[Params]: https://gowalker.org/github.com/typepress/rivet#Params
-[Trie]: https://gowalker.org/github.com/typepress/rivet#Trie
-[Context]: https://gowalker.org/github.com/typepress/rivet#Context
-[Router]: https://gowalker.org/github.com/typepress/rivet#Router
-[Scene]: https://gowalker.org/github.com/typepress/rivet#Scene
-[Rivet.Get]: https://gowalker.org/github.com/typepress/rivet#Rivet_Get
-[Rivet.Invoke]: https://gowalker.org/github.com/typepress/rivet#Rivet_Invoke
-[FilterClass]: https://gowalker.org/github.com/typepress/rivet#_variables
+[Node]: //gowalker.org/github.com/typepress/rivet#Node
+[NodeBuilder]: //gowalker.org/github.com/typepress/rivet#NodeBuilder
+[Filter]: //gowalker.org/github.com/typepress/rivet#Filter
+[FilterBuilder]: //gowalker.org/github.com/typepress/rivet#FilterBuilder
+[FilterClass]: //gowalker.org/github.com/typepress/rivet#_variables
+[Params]: //gowalker.org/github.com/typepress/rivet#Params
+[ParamsReceiver]: //gowalker.org/github.com/typepress/rivet#ParamsReceiver
+[Scene]: //gowalker.org/github.com/typepress/rivet#Scene
+[Trie]: //gowalker.org/github.com/typepress/rivet#Trie
+[Context]: //gowalker.org/github.com/typepress/rivet#Context
+[Router]: //gowalker.org/github.com/typepress/rivet#Router
+[Rivet]: //gowalker.org/github.com/typepress/rivet#Rivet
+[Rivet.Get]: //gowalker.org/github.com/typepress/rivet#Rivet_Get
+[Rivet.Invoke]: //gowalker.org/github.com/typepress/rivet#Rivet_Invoke
+[Riveter]: //gowalker.org/github.com/typepress/rivet#Riveter
+[benchmark]: //github.com/julienschmidt/go-http-routing-benchmark
+[examples]: //github.com/typepress/rivet/tree/master/examples

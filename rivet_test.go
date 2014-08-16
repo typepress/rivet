@@ -225,14 +225,14 @@ var zRoutes = []string{
 	"/hi/:name/to",
 	"/:name",
 	"/:name",
-	"/:name/path",
+	"/:name/path/?",
 	"/:name/path",
 	"/:name/path/to",
 	"/:name/path/to",
 	"/:name/path/**",
 	"/:name/path/z",
 	"/:name/**",
-	"/:name/z",
+	"/:name/z/zz",
 }
 
 func Test_Z(t *testing.T) {
@@ -260,8 +260,9 @@ func Test_Z(t *testing.T) {
 
 		trie := root.Match(urlPath, nil, nil, nil)
 
-		if trie.id != i/2+1 {
-			t.Fatalf("missing : %d %s", trie.id, urlPath)
+		if routes[i] != routes[trie.id*2-2] {
+			t.Fatalf("missing :\n  id:%d\nwant: %s\n got: %s\n",
+				trie.id, routes[i], routes[trie.id*2-2])
 		}
 	}
 }
@@ -392,7 +393,7 @@ func Test_Scene(t *testing.T) {
 func Test_Invoke(t *testing.T) {
 	result := ""
 	invoke := func(c Context) {
-		result = c.Get(TypeIdOf("")).(string)
+		result = c.Get(TypeIdOf(result)).(string)
 	}
 
 	mux := NewRouter(nil)
