@@ -8,7 +8,7 @@ Rivet
 
 [examples][] 目录中有几个例子, 方便您了解 Rivet.
 
-任何问题, 分享可至 [issues](/typepress/rivet/issues) , [wiki](/typepress/rivet/wiki) 
+任何问题, 分享可至 [issues][] , [wiki][]
 
 这里有个路由专项评测 [go-http-routing-benchmark][benchmark].
 
@@ -543,7 +543,8 @@ Copyright (c) 2014 The TypePress Authors. All rights reserved.
 Use of this source code is governed by a BSD-style
 license that can be found in the LICENSE file.
 
-
+[issues]: //github.com/typepress/rivet/issues
+[wiki]: //github.com/typepress/rivet/wiki
 [Node]: //gowalker.org/github.com/typepress/rivet#Node
 [NodeBuilder]: //gowalker.org/github.com/typepress/rivet#NodeBuilder
 [Filter]: //gowalker.org/github.com/typepress/rivet#Filter
