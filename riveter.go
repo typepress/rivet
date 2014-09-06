@@ -243,14 +243,15 @@ Invoke 处理 handler.
 	func(ResponseWriter, *http.Request)
 	func(http.ResponseWriter)
 	func(http.ResponseWriter, *http.Request)
-	func(Params)
+
+	func(map[string]interface{}, http.ResponseWriter, *http.Request)
 	func(Params, *http.Request)
 	func(Params, ResponseWriter)
 	func(Params, http.ResponseWriter)
 	func(Params, ResponseWriter, *http.Request)
 	func(Params, http.ResponseWriter, *http.Request)
 
-	func(PathParams)
+	func(map[string]string, http.ResponseWriter, *http.Request)
 	func(PathParams, *http.Request)
 	func(PathParams, ResponseWriter)
 	func(PathParams, http.ResponseWriter)
@@ -316,8 +317,8 @@ func (c *Rivet) Invoke(handler interface{}) bool {
 	case func(http.ResponseWriter, *http.Request):
 		fn(c.res, c.req)
 
-	case func(Params):
-		fn(c.Params)
+	case func(map[string]interface{}, http.ResponseWriter, *http.Request):
+		fn(c.Params, c.res, c.req)
 
 	case func(Params, ResponseWriter, *http.Request):
 		fn(c.Params, c.res, c.req)
@@ -334,8 +335,8 @@ func (c *Rivet) Invoke(handler interface{}) bool {
 		fn(c.Params, c.req)
 
 	// PathParams
-	case func(PathParams):
-		fn(c.PathParams)
+	case func(map[string]string, http.ResponseWriter, *http.Request):
+		fn(c.PathParams, c.res, c.req)
 
 	case func(PathParams, ResponseWriter, *http.Request):
 		fn(c.PathParams, c.res, c.req)
