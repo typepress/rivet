@@ -99,6 +99,7 @@ func (c *Rivet) WriteString(data string) (int, error) {
 
 //	GetParams 返回路由匹配时从 URL.Path 中提取的参数
 func (c *Rivet) GetParams() Params {
+	c.copyParams(id_Params)
 	return c.Params
 }
 
@@ -107,6 +108,7 @@ PathParams 返回路由匹配时从 URL.Path 中提取的参数
 此方法与 Scene/NewScene 配套使用.
 */
 func (c *Rivet) GetPathParams() PathParams {
+	c.copyParams(id_PathParams)
 	return c.PathParams
 }
 
