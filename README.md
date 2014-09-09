@@ -265,7 +265,7 @@ func main() {
 
 他们是如何解耦:
 
-Params 无其它依赖, 有 PathParams 风格可选. 自定义 [ParamsReceiver][] 定制.
+Params 无其它依赖, 有 [PathParams][] 风格可选. 自定义 [ParamsReceiver][] 定制.
 
 Filter 接口无其它依赖. 自定义 [FilterBuilder][] 定制.
 
@@ -371,6 +371,34 @@ func SendStaticFile(root http.Dir, rw http.ResponseWriter, req *http.Request) {
 }
 ```
 
+最佳实践
+========
+
+上面的代码类似中间件的作用, 从代码复用性来说, import 非官方包所引起的类型依赖, 都有碍于代码复用.
+所以最佳形式的中间件不应该含有
+
+```go
+import "github.com/typepress/rivet"
+```
+
+如果中间件用到什么参数直接在 Handler 函数声明中写参数类型就好, 关联变量到上下文是应用代码负责的. 对于 URL.Path 参数, rivet 定义了两种类型,[Params][] 和 [PathParams][], 事实上如果中间件用到这两个类型, 您也无需 import rivet. 
+以最前面的 Hi Handler为例, 您可以这样写:
+
+```go
+func Hi(params map[string]string, rw http.ResponseWriter) {
+    io.WriteString(rw, "Hi "+params.Get("who")) // 提取参数 who
+}
+```
+
+rivet 对 map[string]string 和 rivet.PathParams 当作同类型处理.
+同理 map[string]interface{} 和 rivet.Params 当作同类型处理.
+也就是说最佳实践的标准:
+
+```
+当 Handler 不需要使用 Context.Map 的时候, 无需 import rivet. Context.Map 应该在应用代码中使用而不是可复用的中间件.
+```
+
+*提示: 请仔细阅读 Scene 章节. 了解 NewContext 和 NewScene 的差别.*
 
 路由风格
 ========
@@ -526,7 +554,7 @@ func main() {
 }
 ```
 
-*提示: PathParams 和 NewScene 配套使用. 事实上 Context 采用 All-In-One 的设计方式, 具体实现不必未完成所有接口, 使用方法配套即可.*
+*提示: NewScene 以 PathParams 类型保存 URL.Path 参数, Params 初始值为 nil. 相反的, NewContext 以 Params 类型保存 URL.Path 参数, PathParams 初始值为 nil. 当获取 URL.Path 参数时, Rivet 根据类型自动做了转换, 以保障两种风格的 Handler 都可以获取 URL.Path 参数. 很明显使用 NewScene 风格便使用 Params 类型为参数, 获取到的仍旧是 string 类型. 交叉使用 Params, PathParams 增加了转换开销.*
 
 Acknowledgements
 ================
@@ -551,6 +579,7 @@ license that can be found in the LICENSE file.
 [FilterBuilder]: //gowalker.org/github.com/typepress/rivet#FilterBuilder
 [FilterClass]: //gowalker.org/github.com/typepress/rivet#_variables
 [Params]: //gowalker.org/github.com/typepress/rivet#Params
+[PathParams]: //gowalker.org/github.com/typepress/rivet#PathParams
 [ParamsReceiver]: //gowalker.org/github.com/typepress/rivet#ParamsReceiver
 [Scene]: //gowalker.org/github.com/typepress/rivet#Scene
 [Trie]: //gowalker.org/github.com/typepress/rivet#Trie

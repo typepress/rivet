@@ -71,7 +71,6 @@ type Rivet struct {
 	res     ResponseWriter
 	req     *http.Request
 	handler []interface{}
-	mapv    bool // 是否已经 Map 相关参数
 }
 
 // NewContext 新建 *Rivet 实例实现的 Context.
@@ -114,13 +113,16 @@ func (c *Rivet) GetPathParams() PathParams {
 /**
 ParamsReceiver 逐个接收从 URL.Path 中提取的参数.
 此方法把参数值 val 保存在 Params 字段中.
+把原始参数值 text 保存在 PathParams 字段中.
 */
-func (c *Rivet) ParamsReceiver(name, _ string, val interface{}) {
+func (c *Rivet) ParamsReceiver(name, text string, val interface{}) {
 
 	if c.Params == nil {
 		c.Params = make(Params, 1)
+		//c.PathParams = make(PathParams, 1)
 	}
 	c.Params[name] = val
+	//c.PathParams[name] = text
 }
 
 // Handlers 设置 handler, 首次使用有效.
@@ -146,27 +148,25 @@ func (r *Rivet) Get(t uint) (v interface{}) {
 
 func (r *Rivet) get(t uint) (interface{}, bool) {
 
-	if !r.mapv {
-		r.mapv = true
-		r.MapTo(r.Params, id_Params)
-		r.MapTo(r.PathParams, id_PathParams)
-		r.MapTo(r, id_Context)
-		r.MapTo(r.req, id_httpRequest)
-		r.MapTo(r.res, id_ResponseWriter)
-		r.MapTo(r.res, id_HttpResponseWriter)
+	// 优化预置类型
+	switch t {
+	case id_MapStringInterface, id_Params:
+		r.copyParams(id_Params)
+		return r.Params, true
+	case id_MapStringString, id_PathParams:
+		r.copyParams(id_PathParams)
+		return r.PathParams, true
+	case id_Context:
+		return r, true
+	case id_httpRequest:
+		return r.req, true
+	case id_ResponseWriter, id_HttpResponseWriter:
+		return r.res, true
 	}
 
 	i, ok := r.val[t]
 	if ok {
 		return i, true
-	}
-
-	if t == id_MapStringInterface {
-		return r.Params, true
-	}
-
-	if t == id_MapStringString {
-		return r.PathParams, true
 	}
 
 	return nil, false
@@ -318,45 +318,77 @@ func (c *Rivet) Invoke(handler interface{}) bool {
 		fn(c.res, c.req)
 
 	case func(map[string]interface{}, http.ResponseWriter, *http.Request):
+		c.copyParams(id_Params)
 		fn(c.Params, c.res, c.req)
 
 	case func(Params, ResponseWriter, *http.Request):
+		c.copyParams(id_Params)
 		fn(c.Params, c.res, c.req)
 	case func(Params, http.ResponseWriter, *http.Request):
+		c.copyParams(id_Params)
 		fn(c.Params, c.res, c.req)
 
 	case func(Params, ResponseWriter):
+		c.copyParams(id_Params)
 		fn(c.Params, c.res)
 
 	case func(Params, http.ResponseWriter):
+		c.copyParams(id_Params)
 		fn(c.Params, c.res)
 
 	case func(Params, *http.Request):
+		c.copyParams(id_Params)
 		fn(c.Params, c.req)
 
 	// PathParams
 	case func(map[string]string, http.ResponseWriter, *http.Request):
+		c.copyParams(id_PathParams)
 		fn(c.PathParams, c.res, c.req)
 
 	case func(PathParams, ResponseWriter, *http.Request):
+		c.copyParams(id_PathParams)
 		fn(c.PathParams, c.res, c.req)
 	case func(PathParams, http.ResponseWriter, *http.Request):
+		c.copyParams(id_PathParams)
 		fn(c.PathParams, c.res, c.req)
 
 	case func(PathParams, ResponseWriter):
+		c.copyParams(id_PathParams)
 		fn(c.PathParams, c.res)
 
 	case func(PathParams, http.ResponseWriter):
+		c.copyParams(id_PathParams)
 		fn(c.PathParams, c.res)
 
 	case func(PathParams, *http.Request):
+		c.copyParams(id_PathParams)
 		fn(c.PathParams, c.req)
 	}
 	return true
 }
 
+// 兼容 NewContext, NewScene.
+func (c *Rivet) copyParams(want uint) {
+	if want == id_Params && c.Params == nil {
+		c.Params = make(Params, len(c.PathParams))
+		for name, val := range c.PathParams {
+			c.Params[name] = val
+		}
+		return
+	}
+
+	if want == id_PathParams && c.PathParams == nil {
+		c.PathParams = make(PathParams, len(c.Params))
+		for name, _ := range c.Params {
+			c.Params[name] = c.Params.Get(name)
+		}
+	}
+}
+
 /**
 Scene 支持 Handler 参数类型为 PathParams 的风格.
+PathParams 省去了 URL.Path 参数转换的结果,
+如果 Filter 中没有用到类型转换, 使用 Scene 是合适的.
 */
 type Scene struct {
 	*Rivet
@@ -371,9 +403,9 @@ func NewScene(res http.ResponseWriter, req *http.Request) Context {
 ParamsReceiver 逐个接收从 URL.Path 中提取的参数.
 此方法把参数值 text 保存在 PathParams 字段中.
 */
-func (c Scene) ParamsReceiver(key, text string, _ interface{}) {
+func (c Scene) ParamsReceiver(name, text string, _ interface{}) {
 	if c.PathParams == nil {
 		c.PathParams = make(PathParams, 1)
 	}
-	c.PathParams[key] = text
+	c.PathParams[name] = text
 }
