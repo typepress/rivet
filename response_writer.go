@@ -14,7 +14,11 @@ type ResponseWriter interface {
 	Status() int
 	// Size 返回调用 Write 写入的字节数, 初始值为 0
 	Size() int
-	// Written 返回 Status()!=0 || Size()!=0 的结果
+
+	/**
+	Written 返回是否已经写入了内容.
+	包括两种情况, WriteHeader 和 Write. 实现是如何判断的可能有差异.
+	*/
 	Written() bool
 }
 
@@ -49,11 +53,17 @@ func (rw *ResponseWriteFakeFlusher) Flush() {
 	}
 }
 
+/**
+WriteHeader 向相应发送状态码 s.
+*/
 func (rw *ResponseWriteFakeFlusher) WriteHeader(s int) {
 	rw.ResponseWriter.WriteHeader(s)
 	rw.status = s
 }
 
+/**
+Write 向相应写入 b, 返回本次写入的字节和发生的错误.
+*/
 func (rw *ResponseWriteFakeFlusher) Write(b []byte) (int, error) {
 	if !rw.Written() {
 		rw.WriteHeader(http.StatusOK)
@@ -63,14 +73,23 @@ func (rw *ResponseWriteFakeFlusher) Write(b []byte) (int, error) {
 	return size, err
 }
 
+/**
+Status 返回通过 WriteHeader 设置的值.
+*/
 func (rw *ResponseWriteFakeFlusher) Status() int {
 	return rw.status
 }
 
+/**
+Size 返回通过 Write 的总字节数.
+*/
 func (rw *ResponseWriteFakeFlusher) Size() int {
 	return rw.size
 }
 
+/**
+Written 返回  Status()!=0 || Size()!=0 的结果
+*/
 func (rw *ResponseWriteFakeFlusher) Written() bool {
 	return rw.status != 0 || rw.size != 0
 }
