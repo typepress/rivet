@@ -87,20 +87,21 @@ type Filter interface {
 		Filter 可能需要 req 的信息, 甚至直接写 rw.
 
 	返回值:
+		string      通过检查提取的字符串值.
 		interface{} 通过检查/转换后的数据.
 		bool 值表示是否通过过滤器.
 	*/
 	Filter(text string,
-		rw http.ResponseWriter, req *http.Request) (interface{}, bool)
+		rw http.ResponseWriter, req *http.Request) (string, interface{}, bool)
 }
 
 /**
 FilterFunc 包装函数符合 Filter 接口.
 */
-type FilterFunc func(text string) (interface{}, bool)
+type FilterFunc func(text string) (string, interface{}, bool)
 
 func (filter FilterFunc) Filter(text string,
-	_ http.ResponseWriter, _ *http.Request) (interface{}, bool) {
+	_ http.ResponseWriter, _ *http.Request) (string, interface{}, bool) {
 
 	return filter(text)
 }

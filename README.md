@@ -79,12 +79,14 @@ Hi Girl
 访问 "/news/sports" 会得到 404 NotFound 页面.
 
 以 api.github.com 真实路由为例:
+
 ```go
 mux.Get("/users/:user/events", Events)
 mux.Get("/users/:user/events/orgs/:org", Events)
 ```
 
 因为都用 Events 函数作为 handler,  可以这样写:
+
 ```go
 func Events(params rivet.Params, rw http.ResponseWriter) {
     user := params.Get("owner")
@@ -106,6 +108,7 @@ func Events(params rivet.Params, rw http.ResponseWriter) {
 ```
 
 事实上 api.github.com 路由很多, 分开用不同的 handler 处理才是好方法:
+
 ```go
 mux.Get("/users/:user/events", userEvents)
 mux.Get("/users/:user/events/orgs/:org", userOrgEvents)
@@ -292,6 +295,7 @@ Router 依赖上述所有. 了解函数类型 [NodeBuilder][] 和 [Riveter][] �
 下文展示扩展定制方法.
 
 自定义 Context 生成器:
+
 ```go
 // 自定义 Context 生成器, 实现真正的 http.Flusher
 func MyRiveter(rw http.ResponseWriter, req *http.Request) rivet.Context {
@@ -501,9 +505,18 @@ Rivet 对路由 pattern 支持丰富.
     "/path/to/**"
 ```
 
-*提示: 含有 class 才会生成 Filter, 否则被优化处理*
+*提示: 含有 class 才会生成 Filter, 否则被优化处理. 式中以一个空格作为分割符, 连续空格会产生其他语义.*
 
-您也许注意到, 这里没有正则, 自定义 Filter 怎么执行由定制者控制, 包括正则.
+正则支持
+--------
+
+事实上这只是一个名字为 "|" 的内建 Filter.
+
+```
+"/path/to/:id | ^id(\d+)$"
+```
+
+其中的 `:id | ^id(\d+)$` 是正则写法, `|` 是内建正则 Filter 的名字, 后跟正则表达式. 你也许主要到这个正则中有分组, 内建的正则 Filter 提取的就是最后一组匹配, 当然也可以不分组.
 
 *提示: 正则中不能含有 "/".*
 
@@ -525,6 +538,7 @@ type PathParams map[string]string
 是的, 这种场景也很普遍. [Scene][] 就是为此准备的 Context.
 
 Scene 的使用很简单:
+
 ```go
 package main
 

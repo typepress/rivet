@@ -7,34 +7,39 @@ import (
 	"testing"
 )
 
-type debugParams struct {
-	maps map[string]interface{}
-	diff int
+type testRoute struct {
+	path   string
+	url    string
+	params []string
 }
 
-func newDebugParams() *debugParams {
-	return &debugParams{maps: map[string]interface{}{}}
-}
-func (p *debugParams) ParamsReceiver(key, text string, val interface{}) {
-	p.maps[key] = val
+/**
+testReceiver 是一个 ParamsReceiver. 用于测试接收到的参数
+*/
+type testReceiver struct {
+	params map[string]string
 }
 
-// ParamsNames 接收合法的参数名
-func (p *debugParams) ParamsNames(names map[string]bool) {
-	if len(p.maps) != len(names) {
-		clear := len(names) == 0
-		for k, _ := range p.maps {
-			if clear || !names[k] {
-				p.diff++
-			}
-		}
-		for k, _ := range names {
-			if p.maps[k] == nil {
-				p.diff++
-			}
-		}
+func newTestReceiver() *testReceiver {
+	return &testReceiver{params: map[string]string{}}
+}
 
+func (p *testReceiver) ParamsReceiver(key, text string, v interface{}) {
+	p.params[key] = text
+}
+
+func (p *testReceiver) Diff(params []string) int {
+	if len(params) == 0 && len(p.params) != 0 {
+		return len(p.params)
 	}
+
+	diff := 0
+	for i, s := range params {
+		if s != p.params[fmt.Sprint(i)] {
+			diff++
+		}
+	}
+	return diff
 }
 
 func assert(t *testing.T, got interface{}, want interface{}, s ...string) {
@@ -99,7 +104,7 @@ func TestTrie(t *testing.T) {
 	}
 
 	for i, path := range routes {
-		p := newDebugParams()
+		p := newTestReceiver()
 		child := root.Match(path, p, nil, nil)
 
 		if child == nil {
@@ -107,13 +112,6 @@ func TestTrie(t *testing.T) {
 		}
 		if child.id != i+1 {
 			t.Errorf("*trie.Match route is nil'%s'", path)
-		}
-
-		_, names := analyzePath(path)
-		if p.diff != 0 {
-			t.Errorf(
-				"*trie.Match: incorrect Params:\n %s\n child.name: %s\n child.names: %#v\n path names: %#v\n params: %#v\n",
-				path, child.name, child.names, names, p.maps)
 		}
 	}
 
@@ -153,7 +151,7 @@ func Test_HasParams(t *testing.T) {
 
 	for i := 0; i < len(hasParams); i += 3 {
 
-		p := newDebugParams()
+		p := newTestReceiver()
 		method, urlPath := hasParams[i], hasParams[i+2]
 
 		node := mux.Match(method, urlPath, p, nil, nil)
@@ -161,61 +159,116 @@ func Test_HasParams(t *testing.T) {
 		if node.Id() == 0 {
 			t.Fatalf("NotFound : %s", urlPath)
 		}
-		if len(p.maps) == 0 {
+		if len(p.params) == 0 {
 			t.Fatal("want Params , but got nil:", node.Id(), urlPath)
-		}
-		if p.diff != 0 {
-			t.Fatalf("NotFound : params received to more %s", urlPath)
 		}
 	}
 }
 
-var debug = false
-
-var otsRoutes = []string{
-	"/:mad uint/?", "/12387",
-	"/:mad uint/?", "/12387/",
-	"/catch/all/?", "/catch/all",
-	"/catch/all/?", "/catch/all/",
-	"/hi", "/hi",
-	"/hi*", "/hihi",
-	"/hi*/?", "/hihi",
-	"/hi*/hi/?", "/hi/hi",
-	"/**", "/hi/hihi",
+// omit trailing slash
+func Test_OTS(t *testing.T) {
+	test_Routes(t, []testRoute{
+		testRoute{
+			path:   "/:0 uint/?",
+			url:    "/12387",
+			params: []string{"12387"},
+		},
+		testRoute{
+			path:   "/:0 uint/?",
+			url:    "/12387/",
+			params: []string{"12387"},
+		},
+		testRoute{
+			path: "/catch/all/?",
+			url:  "/catch/all",
+		},
+		testRoute{
+			path: "/catch/all/?",
+			url:  "/catch/all/",
+		},
+		testRoute{
+			path: "/hi",
+			url:  "/hi",
+		},
+		testRoute{
+			path: "/hi*",
+			url:  "/hihi",
+		},
+		testRoute{
+			path: "/hi*/?",
+			url:  "/hihi",
+		},
+		testRoute{
+			path: "/hi*/hi/?",
+			url:  "/hi/hi",
+		},
+		testRoute{
+			path: "/**",
+			url:  "/hi/hihi",
+		},
+	})
 }
 
-func Test_OTS(t *testing.T) {
-	routes := otsRoutes
+// regexp
+func Test_Regexp(t *testing.T) {
+	test_Routes(t, []testRoute{
+		testRoute{
+			path:   `/:0 | ^\d+$`,
+			url:    "/12387",
+			params: []string{"12387"},
+		},
+		testRoute{
+			path:   `/id:0 | ^\d+$`,
+			url:    "/id12387",
+			params: []string{"12387"},
+		},
+		testRoute{
+			path:   `/uid:0 | ^(\d+)$`,
+			url:    "/uid12387",
+			params: []string{"12387"},
+		},
+		testRoute{
+			path:   `/:0 | ^cat(\d+)$/:1 | ^id(\d+)$/?`,
+			url:    "/cat1/id2",
+			params: []string{"1", "2"},
+		},
+		testRoute{
+			path: `/omit: | ^(\d+)$`,
+			url:  "/omit12387",
+		},
+	})
+}
+
+func test_Routes(t *testing.T, routes []testRoute) {
 	mux := NewRouter(nil)
 
-	i := 0
-	for i = 0; i < len(routes); i += 2 {
-		urlPath := routes[i]
+	for _, r := range routes {
 		recv := catchPanic(func() {
-			mux.Get(urlPath)
+			mux.Get(r.path)
 		})
 
 		if recv != nil {
-			t.Fatalf("panic Handle '%s': %v", urlPath, recv)
+			t.Fatalf("panic Handle '%s': %v", r.path, recv)
 		}
 	}
+
 	root := mux.RootTrie("GET")
-	//root.Print("")
-	for i := 6; i < len(routes); i += 2 {
 
-		p := newDebugParams()
-		urlPath := routes[i+1]
+	for _, r := range routes {
 
-		trie := root.Match(urlPath, p, nil, nil)
+		p := newTestReceiver()
+
+		trie := root.Match(r.url, p, nil, nil)
 
 		if trie.GetId() == 0 {
-			t.Fatalf("NotFound : %s", urlPath)
+			t.Fatalf("NotFound : %s", r.path)
 		}
-		if i < 4 && len(p.maps) == 0 {
-			t.Fatal("want Params , but got nil:", trie.id, urlPath)
+		if len(r.params) == 0 {
+			continue
 		}
-		if p.diff != 0 {
-			t.Fatalf("NotFound : params received to more %s", urlPath)
+
+		if p.Diff(r.params) != 0 {
+			t.Fatal("params is different:", r.path, p.params)
 		}
 	}
 

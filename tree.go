@@ -101,9 +101,10 @@ func newPerk(text string, newFilter FilterBuilder) *perk {
 }
 
 func (p *perk) Filter(text string,
-	rw http.ResponseWriter, req *http.Request) (interface{}, bool) {
+	rw http.ResponseWriter, req *http.Request) (string, interface{}, bool) {
+	// 优化直接提取
 	if p.filter == nil {
-		return text, true
+		return text, text, true
 	}
 	return p.filter.Filter(text, rw, req)
 }
@@ -189,7 +190,7 @@ func (t *Trie) Match(path string, rec ParamsReceiver,
 		slashMax int
 		c, idx   byte
 		catchAll *Trie
-		all      string
+		all, raw string
 		val      interface{}
 		ok       bool
 	)
@@ -252,10 +253,10 @@ WALK:
 					}
 				}
 
-				if val, ok = t.nodes[j].Filter(path[:i], rw, req); ok {
+				if raw, val, ok = t.nodes[j].Filter(path[:i], rw, req); ok {
 					t = t.nodes[j]
 					if t.name != "" {
-						rec.ParamsReceiver(t.name, path[:i], val)
+						rec.ParamsReceiver(t.name, raw, val)
 					}
 					path = path[i:]
 					break
@@ -346,11 +347,11 @@ WALK:
 			}
 		}
 
-		if val, ok = t.Filter(path[:i], rw, req); !ok {
+		if raw, val, ok = t.Filter(path[:i], rw, req); !ok {
 			break
 		}
 		if t.name != "" {
-			rec.ParamsReceiver(t.name, path[:i], val)
+			rec.ParamsReceiver(t.name, raw, val)
 		}
 		path = path[i:]
 	}
