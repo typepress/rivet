@@ -2,745 +2,437 @@ package rivet
 
 import (
 	"fmt"
+	"io"
 	"net/http"
+	"os"
 	"sort"
 	"strings"
 )
 
-func analyzePath(path string) (c int, names map[string]bool) {
-
-	size := len(path)
-	for i := 0; i < size; i++ {
-		if path[i] != ':' && path[i] != '*' {
-
-			if path[i] == '/' {
-				c++
-			}
-
-			continue
-		}
-
-		if i+1 < size && path[i] == path[i+1] {
-			if names == nil {
-				names = make(map[string]bool)
-			}
-			names["*"] = true
-			break
-		}
-
-		j := i + 1
-		k := 0
-
-		for ; i < size; i++ {
-			if path[i] == ' ' {
-				k = i
-				break
-			}
-			if path[i] == '/' {
-				c++
-				k = i
-				break
-			}
-		}
-
-		if k == 0 {
-			k = i
-		}
-
-		if path[j:k] != "" {
-			if names == nil {
-				names = make(map[string]bool)
-			}
-			names[path[j:k]] = true
-		}
-	}
-	return
-}
-
-func slashCount(path string) (c int) {
-	size := len(path)
-	for i := 0; i < size; i++ {
-		switch path[i] {
-		case '/':
-			c++
-		}
-	}
-	return
-}
-
-// Trie 专用
-type perk struct {
-	filter Filter
-	name   string // 空值匹配不提取
-}
-
-func newPerk(text string, newFilter FilterBuilder) *perk {
-	if text[0] != ':' && text[0] != '*' {
-		panic("rivet: internal error form newFilter : " + text)
-	}
-
-	a := strings.Split(text[1:], " ")
-
-	p := new(perk)
-	p.name = a[0]
-	switch len(a) {
-	case 1:
-		// 优化处理, 无需建立 Filter
-
-		// "/path/to/:pattern/to/**"
-		if p.name == "*" || p.name == ":" {
-			p.name = "*"
-		}
-	case 2:
-		p.filter = newFilter(a[1])
-	default:
-		p.filter = newFilter(a[1], a[2:]...)
-	}
-
-	return p
-}
-
-func (p *perk) Filter(text string,
-	rw http.ResponseWriter, req *http.Request) (string, interface{}, bool) {
-	// 优化直接提取
-	if p.filter == nil {
-		return text, text, true
-	}
-	return p.filter.Filter(text, rw, req)
-}
-
-/**
-discardParams 替代 ParamsReceiver 为 nil 的情况
-*/
-type discardParams bool
-
-func (discardParams) ParamsReceiver(key, text string, val interface{}) {
-}
-
-var _discard = discardParams(true)
-
-/**
-Trie 管理路由 patterns.
-Trie 不直接管理路由 Handler, 由使用者通过 SetId 进行组织管理.
-id 为 0 的节点保留给内部算法使用, 所以 0 值表示非路由节点.
-
-请使用 NewRootTrie 获得根节点.
-使用 Print 方法有助于了 Trie 的结构和算法.
-*/
+// Trie 是路由 patterns 的前缀树.
 type Trie struct {
-	*perk
-	path     string
-	names    map[string]bool // 参数名
-	nodes    []*Trie
-	indices  []byte
-	id       int  // 用户数据标识, 0 表示非路由节点
-	slash    int  // path 中的斜线个数
-	slashMax int  // 后续 tree 中的斜线最大个数
-	catchAll bool // "/**"
-	ots      bool // optional trailing slashes , 可选尾部斜线
+	Word     interface{} // 用来保存应用数据
+	name     string      // 定值字符串或者参数名, 内置 "\n", "\r" 表示 "**"" 和 "*"
+	pattern  string      // pattern
+	parent   *Trie       // 父节点
+	childs   []*Trie     // 前缀子节点
+	matcher  Matcher     // 匹配器
+	matchers []*Trie     // 匹配器子节点
+
+	// 如果 matcher 为 nil 且 pattern[0] != "*" name 表示定值字符串, 否则为参数名
 }
 
-/**
-NewRootTrie 返回新的根节点 Trie, 已经设置路径为 "/".
-*/
-func NewRootTrie() *Trie {
-	return &Trie{path: "/", indices: []byte{}, slash: 1, slashMax: 1}
+// newTrie 返回一个 *Trie.
+func newTrie() *Trie {
+	return new(Trie)
 }
 
-/**
-GetId 返回节点 id.
-*/
-func (t *Trie) GetId() int {
-	if t == nil {
-		return 0
-	}
-	return t.id
+// Trie 构建通过判断 path 的前部并不断吃掉字符的过程
+
+// Mix 传递内建的 Matcher 生成方法调用 Merge.
+func (t *Trie) Mix(path string) *Trie {
+	return t.Merge(path, builder)
 }
 
-/**
-SetId 设置节点 id. 设置条件为:
+// Merge 合并 path 到 t, Trie 树会被重构, 返回最终节点.
+// 参数 build 用于生成 path 中的匹配.
+// 如果 path 非法, 可能会产生 panic
+//
+// TIP:
+//   应该对返回的 Trie.Word 进行赋值, 否则在匹配时, Trie.Word == nil 会被认为匹配失败.
+func (t *Trie) Merge(path string, build func(string) Matcher) *Trie {
 
-	id != 0 && t != nil && t.id == 0
-
-其中:
-	t.id == 0 为内部管理节点
-*/
-func (t *Trie) SetId(id int) {
-	if id != 0 && t != nil && t.id == 0 {
-		t.id = id
+	if t.parent == nil && (path == "" || path[0] != '/') {
+		panic("rivet: path must start with a forward slash.")
 	}
+
+	// 来自上级的调用可能产生空字符串
+	if path == "" {
+		return t
+	}
+
+	// "**"
+	if t.pattern == "**" {
+		panic("rivet: Catch-All ending with the trie.")
+	}
+
+	if build == nil {
+		build = builder
+	}
+
+	// ":" 之前只可能是非 Matcher pattern, 定值的和段尾部包含 "*"
+	i := strings.IndexAny(path, ":*")
+	if i == -1 {
+		i = len(path)
+	}
+	t = t.merge(path[:i])
+	path = path[i:]
+	if path == "" {
+		return t
+	}
+
+	// "*", "**"
+	if path[0] == '*' {
+		// "*" || "/a/b*", "/a/b**", "/a/b*/..."
+		if len(path) == 2 && path[1] != '*' && path[1] != '/' || len(path) > 2 && path[1] != '/' {
+			panic("rivet: invalid path: " + path)
+		}
+		if path == "**" {
+			return t.add("", "**", nil)
+		}
+		return t.add("", "*", nil).Merge(path[1:], build)
+	}
+
+	// Matcher pattern 只能在段尾部
+	i = strings.IndexByte(path, '/')
+	if i == -1 {
+		i = len(path)
+	}
+
+	args := strings.SplitN(path[:i], " ", 2)
+	if len(args) == 1 {
+		args = append(args, "")
+	}
+
+	return t.add(args[0][1:], args[1], build).Merge(path[i:], build)
 }
 
-/**
-Match 匹配 URL.Path, 返回匹配到的节点.
-参数:
-	path 待匹配的 URL.Path
-	rec  指定参数接收器, 如果为 nil 表示丢弃参数.
-	rw, req 供 Filter 使用, 如果 Filter 不需要的话, 可以为 nil
+// add 增加匹配子节点, 特别的 "*", "**" 匹配总是位于最后两个
+func (t *Trie) add(name, pattern string, build func(string) Matcher) *Trie {
+	k := len(t.matchers)
+	i := 0
 
-返回:
-	成功返回对应的节点, 该节点 GetId() 一定不为 0.
-	失败返回 nil.
-*/
-func (t *Trie) Match(path string, rec ParamsReceiver,
-	rw http.ResponseWriter, req *http.Request) *Trie {
-
-	var (
-		i, j     int
-		slashMax int
-		c, idx   byte
-		catchAll *Trie
-		all, raw string
-		val      interface{}
-		ok       bool
-	)
-
-	if t == nil || len(path) == 0 {
-		return nil
-	}
-
-	// 默认从定值节点匹配
-	if len(t.path) > len(path) {
-		return nil
-	}
-
-	if t.path != path[:len(t.path)] {
-		return nil
-	}
-
-	if rec == nil {
-		rec = _discard
-	}
-	path = path[len(t.path):]
-
-	// 匹配子节点
-WALK:
-	for {
-		if len(path) == 0 {
+	for ; i < k; i++ {
+		if t.matchers[i].pattern == pattern ||
+			(t.matchers[i].pattern == "*" && pattern != "**") ||
+			t.matchers[i].pattern == "**" {
 			break
 		}
-
-		slashMax -= t.slash
-
-		if len(t.path) == 0 {
-			// 模式分组
-			j = len(path)
-			// path 分段
-			for i = 0; i < j; i++ {
-				if path[i] == '/' {
-					break
-				}
-			}
-
-			// 保存 catchAll 避免回溯
-			if t.nodes[0].name == "*" {
-				catchAll = t.nodes[0]
-				all = path
-			}
-
-			if slashMax < 0 {
-				slashMax = slashCount(path[i:])
-			}
-
-			for j = len(t.nodes) - 1; j >= 0; j-- {
-
-				if j != 0 {
-					if !t.nodes[j].catchAll &&
-						t.nodes[j].slashMax != slashMax &&
-						// 有可能 ots
-						t.nodes[j].slashMax != slashMax+1 {
-						continue
-					}
-				}
-
-				if raw, val, ok = t.nodes[j].Filter(path[:i], rw, req); ok {
-					t = t.nodes[j]
-					if t.name != "" {
-						rec.ParamsReceiver(t.name, raw, val)
-					}
-					path = path[i:]
-					break
-				}
-			}
-
-			// 未匹配或者匹配完成
-			if j < 0 || len(path) == 0 {
-				break
-			}
-			// 匹配的仍然是模式分组
-			if len(t.path) == 0 {
-				continue
-			}
-			// 继续匹配
-		}
-
-		// 子节点, 按照索引匹配, 能匹配上的一定是定值节点
-		c = path[0]
-		for i, idx = range t.indices {
-			if c == idx {
-				if len(t.nodes[i].path) <= len(path) {
-
-					if t.nodes[i].path == path[:len(t.nodes[i].path)] {
-
-						c = 0
-						path = path[len(t.nodes[i].path):]
-					}
-				} else if t.nodes[i].ots {
-					// 未被分割的尾斜线
-
-					if len(t.nodes[i].path) == len(path)+1 &&
-						t.nodes[i].path[:len(path)] == path {
-
-						c = 0
-						path = ""
-					}
-				}
-				break
-			}
-		}
-
-		if c == 0 {
-
-			// see Test_OTS
-			if t.indices[0] == 0 {
-				if t.nodes[0].catchAll {
-
-					catchAll = t.nodes[0]
-					if len(catchAll.path) == 0 &&
-						catchAll.nodes[0].catchAll {
-						catchAll = catchAll.nodes[0]
-					}
-				} else if len(t.nodes[0].path) == 0 &&
-					t.nodes[0].nodes[0].catchAll {
-
-					catchAll = t.nodes[0].nodes[0]
-				}
-			}
-
-			t = t.nodes[i]
-			continue WALK
-		}
-
-		// 失败, 必须含有模式分组, 下标和索引都是 0
-		if len(t.indices) == 0 || t.indices[0] != 0 {
-			break
-		}
-
-		t = t.nodes[0]
-
-		// 分组继续
-		if len(t.path) == 0 {
-			continue
-		}
-
-		if t.name == "*" {
-			rec.ParamsReceiver("*", path, path)
-			path = ""
-			break
-		}
-
-		// path 分段
-		j = len(path)
-		for i = 0; i < j; i++ {
-			if path[i] == '/' {
-				break
-			}
-		}
-
-		if raw, val, ok = t.Filter(path[:i], rw, req); !ok {
-			break
-		}
-		if t.name != "" {
-			rec.ParamsReceiver(t.name, raw, val)
-		}
-		path = path[i:]
 	}
 
-	if len(path) == 0 {
+	if i == k || t.matchers[i].pattern != pattern {
+		// 新建
+		t.matchers = append(t.matchers, nil)
 
-		if t.id != 0 {
+		for k > i {
+			t.matchers[k] = t.matchers[k-1]
+			k--
+		}
+
+		n := newTrie()
+		n.parent = t
+		n.name = name
+		n.pattern = pattern
+		if build != nil {
+			n.matcher = build(pattern)
+		}
+		t.matchers[i] = n
+	}
+	return t.matchers[i]
+}
+
+// merge 参数 path 是字面值, 可能会重构 Trie 树中所有的定值部分.
+func (t *Trie) merge(path string) *Trie {
+
+	if t.matcher == nil && t.pattern != "*" {
+
+		if t.name == "" {
+			t.name = path
 			return t
 		}
-
-		// 被分割的尾斜线, 会在子节点中
-		for i, c := range t.indices {
-			if c == '/' && t.nodes[i].ots && t.nodes[i].id != 0 {
-				return t.nodes[i]
+		// 必定有相同的部分, 至少也是个 "/"
+		i := 0
+		for ; i < len(t.name) && i < len(path); i++ {
+			if t.name[i] != path[i] {
+				break
 			}
 		}
+		// 可能是 "*" 匹配
+		if i != 0 {
 
-		if len(t.indices) != 0 && t.indices[0] == 0 {
-			// catch-all
-			if t.nodes[0].path == "" {
-				t = t.nodes[0].nodes[0]
-			} else {
-				t = t.nodes[0]
+			path = path[i:]
+
+			// 分割 t
+			if i < len(t.name) {
+
+				n := newTrie()
+				n.parent = t
+				n.name, t.name = t.name[i:], t.name[:i]
+
+				n.Word, t.Word = t.Word, nil
+				n.matchers, t.matchers = t.matchers, []*Trie{}
+				n.childs, t.childs = t.childs, []*Trie{n}
 			}
 
-			if t.id != 0 && t.name == "*" {
-				rec.ParamsReceiver("*", "", "")
+			if path == "" {
 				return t
 			}
 		}
 	}
 
-	if catchAll == nil || catchAll.id == 0 {
-		return nil
+	// 简单添加定值节点
+	c := path[0]
+	childs := t.childs
+	k := len(childs)
+	i := sort.Search(k, func(i int) bool {
+		return childs[i].name[0] >= c
+	})
+
+	if i == k || childs[i].name[0] != c {
+		t.childs = append(t.childs, nil)
+		for ; i < k; k-- {
+			t.childs[k] = t.childs[k-1]
+		}
+		n := newTrie()
+		n.name = path
+		n.parent = t
+		t.childs[i] = n
 	}
-	rec.ParamsReceiver("*", all, all)
-	return catchAll
+
+	return t.childs[i].merge(path)
 }
 
-/**
-Add 添加路由 pattern 返回相应的节点.
-
-参数:
-	path      路由 pattern. 必须以 "/" 开头.
-	newFilter Filter 生成器, 如果为 nil, 用函数 NewFilter 代替.
-
-返回:
-	返回对应 path 的节点, 如果 path 重复, 返回原有节点.
-
-注意: 因为 Add 允许重复, 调用者应该先判断 GetId() 是否为 0, 再确定是否要 SetId.
-*/
-func (t *Trie) Add(path string, newFilter FilterBuilder) *Trie {
-	var i, j int
-	var child *Trie
-
-	if len(path) == 0 || path[0] != '/' {
-		panic("rivet: Add supported only from root Trie.")
-	}
-
-	// optional trailing slashes
-
-	ots := path[len(path)-1] == '?'
-
-	if ots {
-		path = path[:len(path)-1]
-		if path == "/" {
-			ots = false
-		} else if len(path) < 1 || path[len(path)-1] != '/' {
-			panic("rivet: invalid optional trailing slashes: " + path + "?")
-		}
-	}
-
-	if newFilter == nil {
-		newFilter = NewFilter
-	}
-
-	slashMax, names := analyzePath(path)
-
-	catchAll := names["*"]
-	catchAllOld := t.catchAll
-	t.catchAll = t.catchAll || catchAll
-	for {
-		j = len(path)
-
-		if j == 0 {
-			if len(t.path) == 0 {
-				panic("rivet: internal error, add a pattern group?")
-			}
-			break
-		}
-
-		if t.perk != nil && t.name == "*" {
-			panic("rivet: catch-all routes are only allowed at the end of the path")
-		}
-
-		if len(t.path) < len(path) {
-			j = len(t.path)
-		}
-
-		if t.slashMax < slashMax {
-			t.slashMax = slashMax
-		}
-		slashMax -= t.slash
-
-		// 模式分组, 子节点枚举匹配
-		if j == 0 {
-			if path[0] != ':' && path[0] != '*' {
-				panic("rivet: internal error form pattern group for: " + path)
-			}
-
-			t.catchAll = t.catchAll || catchAll
-			// 提取模式段
-			for i = 0; i < len(path); i++ {
-				if path[i] == '/' {
-					break
-				}
-			}
-
-			// 是否有重复
-			for j = 0; j < len(t.nodes); j++ {
-				if t.nodes[j].path == path[:i] {
-					break
-				}
-			}
-
-			// 重复
-			if j < len(t.nodes) {
-				t = t.nodes[j]
-				t.catchAll = t.catchAll || catchAll
-				path = path[i:]
-				continue
-			}
-
-			// 新增
-
-			child = new(Trie)
-			child.path = path[:i]
-			child.perk = newPerk(child.path, newFilter)
-			child.catchAll = catchAll
-			path = path[i:]
-
-			if child.name == "*" {
-				// 保持 "**" 位于第一个
-				t.nodes = append([]*Trie{child}, t.nodes...)
-			} else {
-
-				i = sort.Search(len(t.nodes), func(i int) bool {
-					if t.nodes[i].name == "*" {
-						return false
-					}
-					return t.nodes[i].slashMax < slashMax
-				})
-
-				t.nodes = append(t.nodes, nil)
-				for j = len(t.nodes) - 1; j > i; j-- {
-					t.nodes[j] = t.nodes[j-1]
-				}
-				t.nodes[i] = child
-			}
-			t = child
-			continue
-		}
-
-		// ==================== 添加子节点 =======================
-		// 找出首个不同字节的下标
-		for i = 0; i < j; i++ {
-
-			if t.path[i] != path[i] {
-				break
-			}
-		}
-
-		// 去掉 t.path 和 path 相同前缀部分
-		path = path[i:]
-
-		/**
-		t.path 和 path 有相同前缀, 需要分割出新节点.
-		i != 0, t 一定是 定值节点, 模式节点不会产生分割
-		*/
-		if i != 0 && len(t.path) > i {
-			child = new(Trie)
-			child.id = t.id
-			child.perk = t.perk
-			child.path = t.path[i:]
-			child.nodes = t.nodes
-			child.indices = t.indices
-			child.slash = slashCount(child.path)
-
-			child.catchAll = catchAllOld
-			child.names = t.names
-			child.ots = t.ots
-			t.ots = false
-			t.names = nil
-
-			t.id = 0
-			t.perk = nil
-			t.path = t.path[:i]
-			t.nodes = []*Trie{child}
-			t.indices = []byte{child.path[0]}
-
-			t.slash = slashCount(t.path)
-			child.slashMax = t.slashMax - t.slash
-		}
-
-		if len(path) == 0 {
-			break
-		}
-
-		// 查找 ":","*"
-		for i = 0; i < len(path); i++ {
-			if path[i] == ':' || path[i] == '*' {
-				break
-			}
-		}
-
-		// 新子节点是 定值节点
-		if i != 0 {
-
-			for j = 0; j < len(t.indices); j++ {
-				if t.indices[j] == path[0] {
-					break
-				}
-			}
-			// 重复子节点
-			if j < len(t.indices) {
-				t = t.nodes[j]
-				t.catchAll = t.catchAll || catchAll
-				continue
-			}
-
-			// 增加子节点
-			child = new(Trie)
-			child.path = path[:i]
-			child.indices = []byte{} // 不能省略, 判断依据
-			child.slashMax = slashCount(path)
-			child.slash = slashCount(child.path)
-			child.catchAll = catchAll
-
-			path = path[i:]
-
-			i = sort.Search(len(t.nodes), func(i int) bool {
-				if t.indices[i] == 0 {
-					return false
-				}
-				return t.nodes[i].slashMax < child.slashMax
-			})
-
-			t.nodes = append(t.nodes, nil)
-			t.indices = append(t.indices, 0)
-			for j = len(t.nodes) - 1; j > i; j-- {
-				t.nodes[j] = t.nodes[j-1]
-				t.indices[j] = t.indices[j-1]
-			}
-
-			t.nodes[i] = child
-			t.indices[i] = child.path[0]
-
-			catchAllOld = t.catchAll
-			t = child
-
-			continue
-		}
-
-		// 新子节点是模式节点
-		t.catchAll = t.catchAll || catchAll
-
-		// t 的子节点已有模式节点或分组
-		if len(t.indices) != 0 && t.indices[0] == 0 {
-			t = t.nodes[0]
-			// 分组节点, 继续循环
-			if len(t.path) == 0 {
-				continue
-			}
-			// 分割为分组节点
-			child = new(Trie)
-			child.id = t.id
-			child.perk = t.perk
-			child.path = t.path
-			child.indices = t.indices
-			child.nodes = t.nodes
-			child.slash = t.slash
-			child.slashMax = t.slashMax
-			child.catchAll = t.catchAll
-
-			child.names = t.names
-			t.names = nil
-
-			t.id = 0
-			t.perk = nil
-			t.path = ""
-			t.indices = nil
-			t.nodes = []*Trie{child}
-			t.slash = 0
-			continue
-		}
-
-		// t 的子节点没有模式节点或分组
-		for ; i < len(path); i++ {
-			if path[i] == '/' {
-				break
-			}
-		}
-
-		// 无需在这里计算 slash, slashMax
-		child = new(Trie)
-		child.path = path[:i]
-		child.perk = newPerk(child.path, newFilter)
-		child.catchAll = t.catchAll
-		path = path[i:]
-
-		// 模式子节点索引为 0x0, 只能有一个, 位于 nodes[0]
-		t.indices = append([]byte{0}, t.indices...)
-		t.nodes = append([]*Trie{child}, t.nodes...)
-
-		t = child
-	}
-
-	t.ots = ots
-	t.catchAll = catchAll
-	if t.names == nil {
-		t.names = names
-	}
-
-	return t
+// Print 输出 Trie 结构信息到 os.Stdout.
+func (t *Trie) Print() {
+	t.output(os.Stdout, 0)
 }
 
-/**
-Print 输出 Trie 结构信息.
-
-参数:
-	prefix 行前缀
-
-返回:
-	节点下所有路由的数量.
-
-输出格式:
-
-	id max[RPG*?] 缩进'path'.slash [indices].len names
-
-其中:
-	max     此分支内最大斜线个数
-	R       表示路由, GetId() 非 0.
-	P       表示模式节点
-	G       表示模式分组
-	*       表示节点或下属节点含有 "/**" 模式.
-	?       尾斜线匹配. "/?"
-	.slash  节点 path 分段中的斜线数量
-	indices 子节点首字符组成的索引.
-	.len    子节点数量
-	names   是参数名 map.
-
-
-*/
-func (t *Trie) Print(prefix string) (count int) {
-
-	info := []byte{' ', ' ', ' ', ' ', ' '}
-
-	if t.id != 0 {
-		info[0] = 'R'
-		count++
+// Fprint 输出 Trie 结构信息到 w.
+func (t *Trie) Fprint(w io.Writer) {
+	if w == nil {
+		w = os.Stdout
 	}
-	if t.perk != nil {
-		info[1] = 'P'
-	}
-	if len(t.path) == 0 {
-		info[2] = 'G'
-	}
-	if t.catchAll {
-		info[3] = '*'
-	}
-	if t.ots {
-		info[4] = '?'
+	t.output(w, 0)
+}
+
+func (t *Trie) output(w io.Writer, count int) {
+	fmt.Fprint(w, strings.Repeat(" ", count))
+
+	if t.name != "" {
+		if t.matcher != nil {
+			count++
+			fmt.Fprint(w, ":")
+		}
+
+		count += len(t.name)
+		fmt.Fprint(w, t.name)
 	}
 
-	fmt.Printf("%4d %3d[%v] %s'%s'.%d [%s]%d %v\n", t.id,
-		t.slashMax, string(info),
-		prefix, t.path, t.slash,
-		string(t.indices), len(t.nodes),
-		t.names,
+	if t.pattern != "" {
+		if t.name != "" {
+			count++
+			fmt.Fprint(w, " ")
+		}
+		count += len(t.pattern)
+		fmt.Fprint(w, t.pattern)
+	}
+
+	if t.Word == nil {
+		fmt.Fprintln(w, " <nil>")
+	} else {
+		fmt.Fprintln(w)
+	}
+
+	for _, n := range t.childs {
+		n.output(w, count)
+	}
+
+	for _, n := range t.matchers {
+		n.output(w, count)
+	}
+}
+
+// String 返回 Trie 的完整 pattern
+func (t *Trie) String() string {
+	var s string
+	if t.name != "" {
+		if t.matcher != nil {
+			s = ":" + t.name
+		} else {
+			s = t.name
+		}
+	}
+
+	if t.pattern != "" {
+		if s != "" {
+			s += " " + t.pattern
+		} else {
+			s += t.pattern
+		}
+	}
+
+	if t.parent == nil {
+		return s
+	}
+	return t.parent.String() + s
+}
+
+var nilBucket bucket
+
+type bucket struct {
+	trie   *Trie
+	params Params
+	err    error
+	ok     bool
+}
+
+// Of 调用 Match 返回 path 匹配到的节点, 忽略 http.Request , Params 和 error.
+func (t *Trie) Of(path string) (n *Trie) {
+	n, _, _ = t.Match(path, nil)
+	return
+}
+
+// Match 返回与 path 匹配的节点和提取到的参数.
+// 参数 req 供匹配器使用.
+// 返回值:
+//
+//   *Trie  通常该值非 nil 且 Trie.Word 非 nil 才表示匹配成功.
+//   Params 提取到的参数.
+//   error  pattern 对应的 Matcher 有可能返回错误.
+//
+// Catch-All 匹配到的字符串总是以 "**" 为名保存至返回的 Params 中.
+func (t *Trie) Match(path string, req *http.Request) (*Trie, Params, error) {
+	var (
+		buck bucket
+	)
+	if t == nil || path == "" {
+		return nil, nil, nil
+	}
+	if t.matcher == nil && t.pattern == "" {
+		i := len(t.name)
+		if len(path) >= i && path[:i] == t.name {
+			if i != len(path) {
+				buck = t.next(path[i:], req)
+			} else if t.Word != nil {
+				return t, nil, nil
+			}
+		}
+	} else {
+		buck = t.match(path, req)
+	}
+	if buck.ok {
+		return buck.trie, buck.params, buck.err
+	}
+	return nil, nil, nil
+}
+
+// match 负责 Matcher 匹配
+func (t *Trie) match(path string, req *http.Request) (buck bucket) {
+	var (
+		i   int
+		val interface{}
 	)
 
-	for l := len(t.path); l >= 0; l-- {
-		prefix += " "
+	i = strings.IndexByte(path, '/')
+
+	if t.matcher == nil {
+		// 必定是 "**", "*" 匹配
+		if t.pattern == "**" {
+			if t.Word == nil {
+				return
+			}
+
+			buck.params = Params{BuildParameter("**", path, path)}
+			buck.trie = t
+			buck.ok = true
+			return
+		}
+
+		// "/path*" 可以匹配 "/path*/", "/path/"
+		if i == -1 {
+			if t.Word == nil {
+				return
+			}
+			buck.trie = t
+			buck.ok = true
+			return
+		}
+		// 是否提取 "*" 匹配的部分???
+	} else {
+
+		if i == -1 {
+			i = len(path)
+		}
+
+		val = t.matcher.Match(path[:i], req)
+		if val == nil {
+			return
+		}
+
+		if err, ok := val.(error); ok {
+			buck.err = err
+			buck.trie = t
+			buck.ok = true
+			return
+		}
+
 	}
-	for _, child := range t.nodes {
-		count += child.Print(prefix)
+
+	// 继续匹配剩余部分
+	if i == len(path) {
+		if t.Word == nil {
+			return
+		}
+		buck.ok = true
+		buck.trie = t
+	} else {
+		buck = t.next(path[i:], req)
 	}
-	if 2 == len(prefix) {
-		fmt.Printf("\nRoutes: %d\n  id max[RPG*?] 'path' [indices].len names\n\n", count)
+
+	if !buck.ok || t.name == "" || val == nil {
+		return
 	}
-	return count
+
+	buck.params = append(buck.params, BuildParameter(t.name, path[:i], val))
+
+	return
+}
+
+// next 遍历前缀子节点和 Matcher 子节点
+func (t *Trie) next(path string, req *http.Request) (buck bucket) {
+	var (
+		i, h int
+		j    int = len(t.childs)
+	)
+
+	if j > 0 {
+		c := path[0]
+		childs := t.childs
+
+		for i < j {
+			h = i + (j-i)/2
+
+			if childs[h].name[0] > c {
+				j = h
+			} else if childs[h].name[0] < c {
+				i = h + 1
+			} else {
+
+				i = len(childs[h].name)
+				if len(path) > i {
+					buck = childs[h].next(path[i:], req)
+
+				} else if path == childs[h].name && childs[h].Word != nil {
+
+					buck.trie = childs[h]
+					buck.ok = true
+				}
+
+				if buck.ok {
+					return
+				}
+
+				break
+			}
+		}
+	}
+
+	j = len(t.matchers)
+	for i = 0; i < j; i++ {
+		if buck = t.matchers[i].match(path, req); buck.ok {
+			return
+		}
+	}
+
+	return
 }

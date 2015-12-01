@@ -1,474 +1,322 @@
 package rivet
 
-import (
-	"fmt"
-	"net/http"
-	"net/http/httptest"
-	"testing"
-)
+import "testing"
 
-type testRoute struct {
-	path   string
-	url    string
-	params []string
+var routes = []string{
+	"/feeds",
+	"/notifications",
+	"/notifications/threads/:id",
+	"/notifications/threads/:id/subscription",
+	"/repos/:owner/:repo/notifications",
+	"/repos/:owner/:repo/stargazers",
+	"/repos/:owner/:repo/subscription",
+	"/user/starred",
+	"/user/starred/:owner/:repo",
+	"/user/subscriptions",
+	"/user/subscriptions/:owner/:repo",
+	"/users/:user/events",
+	"/users/:user/events/orgs/:org",
+	"/users/:user/events/public",
+	"/users/:user/received_events",
+	"/users/:user/received_events/public",
+	"/users/:user/starred",
+	"/users/:user/subscriptions",
+	"/hi",
+	"/hi/**",
+	"/hi/path/to",
+	"/hi/:name/to",
+	"/:name",
+	"/:name/**",
+	"/:name/path",
+	"/:name/path*/to",
+	"/:name/path/**",
+	"/:name/*/to",
+	`/just:id ^\d+$`,
 }
 
-/**
-testReceiver 是一个 ParamsReceiver. 用于测试接收到的参数
-*/
-type testReceiver struct {
-	params map[string]string
-}
-
-func newTestReceiver() *testReceiver {
-	return &testReceiver{params: map[string]string{}}
-}
-
-func (p *testReceiver) ParamsReceiver(key, text string, v interface{}) {
-	p.params[key] = text
-}
-
-func (p *testReceiver) Diff(params []string) int {
-	if len(params) == 0 && len(p.params) != 0 {
-		return len(p.params)
-	}
-
-	diff := 0
-	for i, s := range params {
-		if s != p.params[fmt.Sprint(i)] {
-			diff++
-		}
-	}
-	return diff
-}
-
-func assert(t *testing.T, got interface{}, want interface{}, s ...string) {
-	if fmt.Sprint(got) != fmt.Sprint(want) {
-
-		t.Fatal(
-			s,
-			"\ngot :", got,
-			"\nwant:", want,
-		)
-	}
+var urls = []string{
+	"/feeds",
+	"/notifications",
+	"/notifications/threads/id",
+	"/notifications/threads/id/subscription",
+	"/repos/owner/repo/notifications",
+	"/repos/owner/repo/stargazers",
+	"/repos/owner/repo/subscription",
+	"/user/starred",
+	"/user/starred/owner/repo",
+	"/user/subscriptions",
+	"/user/subscriptions/owner/repo",
+	"/users/user/events",
+	"/users/user/events/orgs/org",
+	"/users/user/events/public",
+	"/users/user/received_events",
+	"/users/user/received_events/public",
+	"/users/user/starred",
+	"/users/user/subscriptions",
+	"/hi",
+	"/hi/catch/All",
+	"/hi/path/to",
+	"/hi/name/to",
+	"/name",
+	"/name/catchAll",
+	"/name/path",
+	"/name/path_Star/to",
+	"/name/path/star/star",
+	"/name/star/to",
+	"/just998",
 }
 
 func TestTrie(t *testing.T) {
-	var child *Trie
+	r := newTrie()
+	for _, s := range routes {
+		trie := r.Mix(s)
 
-	root := NewRootTrie()
-
-	routes := []string{
-		"/b/",
-		"/search/:query",
-		"/cmd/:tool/",
-		"/src/*filepath",
-		"/x",
-		"/x/y",
-		"/y/",
-		"/y/z",
-		"/0/:id",
-		"/0/:id/1",
-		"/1/:id/",
-		"/1/:id/2",
-		"/aa",
-		"/a/",
-		"/do",
-		"/doc",
-		"/doc/go_faq.html",
-		"/doc/go1.html",
-		"/no/a",
-		"/no/b",
-		"/api/hello/:name",
-		"/empty",
-		"/",
-		"/hi",
-		"/hi/**",
-		"/hi/path/to",
-		"/hi/:name/to",
-		"/:name",
-		"/:name/path",
-		"/:name/path/to",
-		"/:name/path/**",
-		"/:name/**",
-	}
-
-	for i, path := range routes {
-		recv := catchPanic(func() {
-			child = root.Add(path, nil)
-			child.id = i + 1
-		})
-		if recv != nil {
-			t.Fatalf("panic *trie.Add '%s': %v", path, recv)
+		if trie.Word != nil {
+			t.Fatal(s, trie.Word.(string))
 		}
-	}
 
-	for i, path := range routes {
-		p := newTestReceiver()
-		child := root.Match(path, p, nil, nil)
-
-		if child == nil {
-			t.Errorf("*trie.Match failed '%s'", path)
+		s1 := trie.String()
+		if s1 != s {
+			t.Fatal(s, s1)
 		}
-		if child.id != i+1 {
-			t.Errorf("*trie.Match route is nil'%s'", path)
+		trie.Word = s
+	}
+
+	for i, s := range urls {
+		m := r.Of(s)
+		if m == nil {
+			t.Fatal(routes[i], s)
 		}
-	}
+		if m.Word == nil {
+			t.Fatal(m.String(), routes[i], s)
+		}
 
-}
-
-var badParams = []string{
-	"GET", "/:mad uint", "/123a",
-}
-
-var hasParams = []string{
-	"GET", "/:mad uint", "/12387",
-	"GET", "/catch/all**", "/catch/all12387",
-}
-
-func Test_BadParams(t *testing.T) {
-	mux := NewRouter(nil)
-	for i := 0; i < len(badParams); i += 3 {
-		mux.Handle(badParams[i], badParams[i+1])
-	}
-
-	for i := 0; i < len(badParams); i += 3 {
-
-		method, urlPath := badParams[i], badParams[i+2]
-
-		node := mux.Match(method, urlPath, nil, nil, nil)
-		if node.Id() != 0 {
-			t.Fatal("want got NotFound, but got ", node.Id(), urlPath)
+		if m.Word.(string) != routes[i] {
+			m.Fprint(nil)
+			t.Fatal(routes[i], s)
 		}
 	}
 }
 
-func Test_HasParams(t *testing.T) {
-	mux := NewRouter(nil)
-	for i := 0; i < len(hasParams); i += 3 {
-		mux.Handle(hasParams[i], hasParams[i+1])
+func TestRouter(t *testing.T) {
+
+	r := Router{}
+	for _, s := range routes {
+		trie := r.Get(s)
+
+		if trie.Word != nil {
+			t.Fatal(s, trie.Word.(string))
+		}
+
+		s1 := trie.String()
+		if s1 != s {
+			t.Fatal(s, s1)
+		}
+		trie.Word = s
 	}
 
-	for i := 0; i < len(hasParams); i += 3 {
-
-		p := newTestReceiver()
-		method, urlPath := hasParams[i], hasParams[i+2]
-
-		node := mux.Match(method, urlPath, p, nil, nil)
-
-		if node.Id() == 0 {
-			t.Fatalf("NotFound : %s", urlPath)
+	for i, s := range urls {
+		m, _, _ := r.Match("GET", s, nil)
+		if m == nil {
+			t.Fatal(routes[i], s)
 		}
-		if len(p.params) == 0 {
-			t.Fatal("want Params , but got nil:", node.Id(), urlPath)
+		if m.Word == nil {
+			t.Fatal(m.String(), routes[i], s)
+		}
+		if m.Word.(string) != routes[i] {
+			t.Fatal(routes[i], m.String())
 		}
 	}
 }
 
-// omit trailing slash
-func Test_OTS(t *testing.T) {
-	test_Routes(t, []testRoute{
-		testRoute{
-			path:   "/:0 uint/?",
-			url:    "/12387",
-			params: []string{"12387"},
-		},
-		testRoute{
-			path:   "/:0 uint/?",
-			url:    "/12387/",
-			params: []string{"12387"},
-		},
-		testRoute{
-			path: "/catch/all/?",
-			url:  "/catch/all",
-		},
-		testRoute{
-			path: "/catch/all/?",
-			url:  "/catch/all/",
-		},
-		testRoute{
-			path: "/hi",
-			url:  "/hi",
-		},
-		testRoute{
-			path: "/hi*",
-			url:  "/hihi",
-		},
-		testRoute{
-			path: "/hi*/?",
-			url:  "/hihi",
-		},
-		testRoute{
-			path: "/hi*/hi/?",
-			url:  "/hi/hi",
-		},
-		testRoute{
-			path: "/**",
-			url:  "/hi/hihi",
-		},
-	})
-}
+func TestStatic(t *testing.T) {
 
-// regexp
-func Test_Regexp(t *testing.T) {
-	test_Routes(t, []testRoute{
-		testRoute{
-			path:   `/:0 | ^\d+$`,
-			url:    "/12387",
-			params: []string{"12387"},
-		},
-		testRoute{
-			path:   `/id:0 | ^\d+$`,
-			url:    "/id12387",
-			params: []string{"12387"},
-		},
-		testRoute{
-			path:   `/uid:0 | ^(\d+)$`,
-			url:    "/uid12387",
-			params: []string{"12387"},
-		},
-		testRoute{
-			path:   `/:0 | ^cat(\d+)$/:1 | ^id(\d+)$/?`,
-			url:    "/cat1/id2",
-			params: []string{"1", "2"},
-		},
-		testRoute{
-			path: `/omit: | ^(\d+)$`,
-			url:  "/omit12387",
-		},
-	})
-}
+	r := Router{}
+	for _, s := range staticRoutes {
+		trie := r.Get(s)
 
-func test_Routes(t *testing.T, routes []testRoute) {
-	mux := NewRouter(nil)
-
-	for _, r := range routes {
-		recv := catchPanic(func() {
-			mux.Get(r.path)
-		})
-
-		if recv != nil {
-			t.Fatalf("panic Handle '%s': %v", r.path, recv)
+		if trie.Word != nil {
+			t.Fatal(s, trie.Word.(string))
 		}
+
+		s1 := trie.String()
+		if s1 != s {
+			t.Fatal(s, s1)
+		}
+		trie.Word = s
 	}
 
-	root := mux.RootTrie("GET")
-
-	for _, r := range routes {
-
-		p := newTestReceiver()
-
-		trie := root.Match(r.url, p, nil, nil)
-
-		if trie.GetId() == 0 {
-			t.Fatalf("NotFound : %s", r.path)
+	for i, s := range staticRoutes {
+		m, _, _ := r.Match("GET", s, nil)
+		if m == nil {
+			t.Fatal(staticRoutes[i], s)
 		}
-		if len(r.params) == 0 {
-			continue
+		if m.Word == nil {
+			t.Fatal(m.String(), staticRoutes[i], s)
 		}
-
-		if p.Diff(r.params) != 0 {
-			t.Fatal("params is different:", r.path, p.params)
+		if m.Word.(string) != staticRoutes[i] {
+			m.Fprint(nil)
+			t.Fatal(staticRoutes[i], s)
 		}
 	}
-
 }
 
-var zRoutes = []string{
+var staticRoutes = []string{
 	"/",
-	"/",
-	"/hi",
-	"/hi",
-	"/hi/**",
-	"/hi/z",
-	"/hi/path/to",
-	"/hi/path/to",
-	"/hi/:name/to",
-	"/hi/:name/to",
-	"/:name",
-	"/:name",
-	"/:name/path/?",
-	"/:name/path",
-	"/:name/path/to",
-	"/:name/path/to",
-	"/:name/path/**",
-	"/:name/path/z",
-	"/:name/**",
-	"/:name/z/zz",
-}
-
-func Test_Z(t *testing.T) {
-	routes := zRoutes
-	mux := NewRouter(nil)
-
-	i := 0
-	for i = 0; i < len(routes); i += 2 {
-		urlPath := routes[i]
-		recv := catchPanic(func() {
-			mux.Get(urlPath)
-		})
-
-		if recv != nil {
-			t.Fatalf("panic Handle '%s': %v", urlPath, recv)
-		}
-	}
-
-	root := mux.RootTrie("GET")
-	//root.Print("")
-
-	for i := 0; i < len(routes); i += 2 {
-
-		urlPath := routes[i+1]
-
-		trie := root.Match(urlPath, nil, nil, nil)
-
-		if routes[i] != routes[trie.id*2-2] {
-			t.Fatalf("missing :\n  id:%d\nwant: %s\n got: %s\n",
-				trie.id, routes[i], routes[trie.id*2-2])
-		}
-	}
-}
-
-func Test_Routing(t *testing.T) {
-	mux := NewRouter(nil)
-	srv := httptest.NewServer(mux)
-	defer srv.Close()
-
-	want := func(g interface{}, w interface{}) {
-		assert(t, g, w)
-	}
-
-	var restr string
-	Do := func(res, method, urlStr string) {
-		restr = res
-		req, _ := http.NewRequest(method, srv.URL+urlStr, nil)
-		http.DefaultClient.Do(req)
-	}
-
-	result := ""
-	mux.Get("/repos/:owner/:repo", func(params Params) {
-		want(params["owner"], ":git")
-		want(params["repo"], ":hub")
-		result += restr + "github"
-	})
-
-	mux.Post("/bar/:cat", func(params Params) {
-		want(params["cat"], "bat")
-		result += restr + ":cat"
-	})
-
-	mux.Get("/foo", func(req *http.Request) {
-		result += restr + "fix"
-	})
-	mux.Get("/foo/*", func(req *http.Request) {
-		result += restr + ":"
-	})
-
-	mux.Get("/foo/prefix:", func(req *http.Request) {
-		result += restr + "prefix*"
-	})
-
-	mux.Post("/foo/post:id", func(params Params) {
-		want(params["id"], 6)
-		result += restr + "post"
-	})
-
-	mux.Patch("/bar/:id", func(params Params) {
-		want(params["id"], "foo")
-		result += restr + "id"
-	})
-
-	mux.Any("/any/foo:ID uint", func(params Params) {
-		want(params["ID"], 6000)
-		result += restr + "ID"
-	})
-
-	mux.Any("/any/catch**", func(params Params) {
-		want(params["*"], "all")
-		result += restr + ":all"
-	})
-	Do("1", "POST", "/bar/bat")
-	Do("2", "GET", "/foo")
-	Do("3", "GET", "/foo/a")
-	Do("4", "GET", "/foo/prefix*")
-	Do("5", "PATCH", "/bar/foo")
-	Do("6", "POST", "/foo/post6")
-	Do("7", "POST", "/any/foo6000")
-	Do("8", "GET", "/any/foo6000")
-	Do("9", "GET", "/repos/:git/:hub")
-	Do("0", "GET", "/any/catchall")
-
-	want(result, "1:cat2fix3:4prefix*5id6post7ID8ID9github0:all")
-}
-
-func catchPanic(testFunc func()) (recv interface{}) {
-	defer func() {
-		recv = recover()
-	}()
-
-	testFunc()
-	return
-}
-
-func Test_Context(t *testing.T) {
-	mux := NewRouter(nil)
-
-	mux.Get("/:name", func(p Params) {
-		if p.Get("name") != "PathParams" {
-			t.Fatal(p)
-		}
-	})
-
-	mux.Get("/map/:name", func(p map[string]interface{}) {
-		if p["name"].(string) != "PathParams" {
-			t.Fatal(p)
-		}
-	})
-
-	req, _ := http.NewRequest("GET", "/PathParams", nil)
-	mux.ServeHTTP(nil, req)
-	req, _ = http.NewRequest("GET", "/map/PathParams", nil)
-	mux.ServeHTTP(nil, req)
-}
-
-func Test_Scene(t *testing.T) {
-	mux := NewRouter(NewScene)
-
-	mux.Get("/:name", func(p PathParams) {
-		if p["name"] != "PathParams" {
-			t.Fatal(p)
-		}
-	})
-
-	mux.Get("/map/:name", func(p map[string]string) {
-		if p["name"] != "PathParams" {
-			t.Fatal(p)
-		}
-	})
-
-	req, _ := http.NewRequest("GET", "/PathParams", nil)
-	mux.ServeHTTP(nil, req)
-	req, _ = http.NewRequest("GET", "/map/PathParams", nil)
-	mux.ServeHTTP(nil, req)
-}
-
-func Test_Invoke(t *testing.T) {
-	result := ""
-	invoke := func(c Context) {
-		result = c.Get(TypeIdOf(result)).(string)
-	}
-
-	mux := NewRouter(nil)
-
-	mux.Get("/", func(c Context) {
-		c.Map("Invoke")
-	}, func(c Context) {
-		c.Invoke(invoke)
-	})
-
-	req, _ := http.NewRequest("GET", "/", nil)
-	mux.ServeHTTP(nil, req)
-	if result != "Invoke" {
-		t.Fatalf("want `Invoke`, bug got ", result)
-	}
+	"/cmd.html",
+	"/code.html",
+	"/contrib.html",
+	"/contribute.html",
+	"/debugging_with_gdb.html",
+	"/docs.html",
+	"/effective_go.html",
+	"/files.log",
+	"/gccgo_contribute.html",
+	"/gccgo_install.html",
+	"/go-logo-black.png",
+	"/go-logo-blue.png",
+	"/go-logo-white.png",
+	"/go1.1.html",
+	"/go1.2.html",
+	"/go1.html",
+	"/go1compat.html",
+	"/go_faq.html",
+	"/go_mem.html",
+	"/go_spec.html",
+	"/help.html",
+	"/ie.css",
+	"/install-source.html",
+	"/install.html",
+	"/logo-153x55.png",
+	"/Makefile",
+	"/root.html",
+	"/share.png",
+	"/sieve.gif",
+	"/tos.html",
+	"/articles/",
+	"/articles/go_command.html",
+	"/articles/index.html",
+	"/articles/wiki/",
+	"/articles/wiki/edit.html",
+	"/articles/wiki/final-noclosure.go",
+	"/articles/wiki/final-noerror.go",
+	"/articles/wiki/final-parsetemplate.go",
+	"/articles/wiki/final-template.go",
+	"/articles/wiki/final.go",
+	"/articles/wiki/get.go",
+	"/articles/wiki/http-sample.go",
+	"/articles/wiki/index.html",
+	"/articles/wiki/Makefile",
+	"/articles/wiki/notemplate.go",
+	"/articles/wiki/part1-noerror.go",
+	"/articles/wiki/part1.go",
+	"/articles/wiki/part2.go",
+	"/articles/wiki/part3-errorhandling.go",
+	"/articles/wiki/part3.go",
+	"/articles/wiki/test.bash",
+	"/articles/wiki/test_edit.good",
+	"/articles/wiki/test_Test.txt.good",
+	"/articles/wiki/test_view.good",
+	"/articles/wiki/view.html",
+	"/codewalk/",
+	"/codewalk/codewalk.css",
+	"/codewalk/codewalk.js",
+	"/codewalk/codewalk.xml",
+	"/codewalk/functions.xml",
+	"/codewalk/markov.go",
+	"/codewalk/markov.xml",
+	"/codewalk/pig.go",
+	"/codewalk/popout.png",
+	"/codewalk/run",
+	"/codewalk/sharemem.xml",
+	"/codewalk/urlpoll.go",
+	"/devel/",
+	"/devel/release.html",
+	"/devel/weekly.html",
+	"/gopher/",
+	"/gopher/appenginegopher.jpg",
+	"/gopher/appenginegophercolor.jpg",
+	"/gopher/appenginelogo.gif",
+	"/gopher/bumper.png",
+	"/gopher/bumper192x108.png",
+	"/gopher/bumper320x180.png",
+	"/gopher/bumper480x270.png",
+	"/gopher/bumper640x360.png",
+	"/gopher/doc.png",
+	"/gopher/frontpage.png",
+	"/gopher/gopherbw.png",
+	"/gopher/gophercolor.png",
+	"/gopher/gophercolor16x16.png",
+	"/gopher/help.png",
+	"/gopher/pkg.png",
+	"/gopher/project.png",
+	"/gopher/ref.png",
+	"/gopher/run.png",
+	"/gopher/talks.png",
+	"/gopher/pencil/",
+	"/gopher/pencil/gopherhat.jpg",
+	"/gopher/pencil/gopherhelmet.jpg",
+	"/gopher/pencil/gophermega.jpg",
+	"/gopher/pencil/gopherrunning.jpg",
+	"/gopher/pencil/gopherswim.jpg",
+	"/gopher/pencil/gopherswrench.jpg",
+	"/play/",
+	"/play/fib.go",
+	"/play/hello.go",
+	"/play/life.go",
+	"/play/peano.go",
+	"/play/pi.go",
+	"/play/sieve.go",
+	"/play/solitaire.go",
+	"/play/tree.go",
+	"/progs/",
+	"/progs/cgo1.go",
+	"/progs/cgo2.go",
+	"/progs/cgo3.go",
+	"/progs/cgo4.go",
+	"/progs/defer.go",
+	"/progs/defer.out",
+	"/progs/defer2.go",
+	"/progs/defer2.out",
+	"/progs/eff_bytesize.go",
+	"/progs/eff_bytesize.out",
+	"/progs/eff_qr.go",
+	"/progs/eff_sequence.go",
+	"/progs/eff_sequence.out",
+	"/progs/eff_unused1.go",
+	"/progs/eff_unused2.go",
+	"/progs/error.go",
+	"/progs/error2.go",
+	"/progs/error3.go",
+	"/progs/error4.go",
+	"/progs/go1.go",
+	"/progs/gobs1.go",
+	"/progs/gobs2.go",
+	"/progs/image_draw.go",
+	"/progs/image_package1.go",
+	"/progs/image_package1.out",
+	"/progs/image_package2.go",
+	"/progs/image_package2.out",
+	"/progs/image_package3.go",
+	"/progs/image_package3.out",
+	"/progs/image_package4.go",
+	"/progs/image_package4.out",
+	"/progs/image_package5.go",
+	"/progs/image_package5.out",
+	"/progs/image_package6.go",
+	"/progs/image_package6.out",
+	"/progs/interface.go",
+	"/progs/interface2.go",
+	"/progs/interface2.out",
+	"/progs/json1.go",
+	"/progs/json2.go",
+	"/progs/json2.out",
+	"/progs/json3.go",
+	"/progs/json4.go",
+	"/progs/json5.go",
+	"/progs/run",
+	"/progs/slices.go",
+	"/progs/timeout1.go",
+	"/progs/timeout2.go",
+	"/progs/update.bash",
 }

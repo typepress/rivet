@@ -1,6 +1,7 @@
 package main
 
 import (
+	"io"
 	"net/http"
 
 	"github.com/typepress/rivet"
@@ -13,11 +14,12 @@ func HelloWorld(w http.ResponseWriter, req *http.Request) {
 }
 
 func Hello(params rivet.Params, w http.ResponseWriter) {
-	w.Write([]byte("Hello " + params["name"].(string)))
+	io.WriteString(w, "Hello ")
+	w.Write([]byte(params.Get("name")))
 }
 
 func CatchAll(c rivet.Context) {
-	c.WriteString("CatchAll:" + c.GetParams().Get("*"))
+	c.WriteString("CatchAll:" + c.Get("**"))
 }
 
 func Go(c rivet.Context) {
@@ -25,17 +27,19 @@ func Go(c rivet.Context) {
 }
 
 func GoGo(c rivet.Context) {
-	// 获取 string 类型标识
-	id := rivet.TypeIdOf("string")
+	var s string
 
-	c.WriteString(c.GetParams().Get("name") + "! " +
-		c.Get(id).(string)) // 类型转换
+	i, has := c.Var(rivet.TypePointerOf("string"))
+	if has {
+		s, _ = i.(string)
+	}
+
+	c.WriteString(c.Get("name") + "! " + s)
 }
 
 func main() {
 
-	// 传递 nil, NewRouter 使用内部的 Rivet 实现
-	mux := rivet.NewRouter(nil)
+	mux := rivet.New()
 
 	mux.Get("/", HelloWorld)
 	mux.Get("/empty", empty)
