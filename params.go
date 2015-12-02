@@ -2,37 +2,37 @@ package rivet
 
 import "net/url"
 
-var BuildParameter = Lite
+var BuildParameter = Source
 
-type Argument struct {
-	Key     string      // 参数名
-	Literal string      // 路径中的原始字符串
-	Value   interface{} // 参数值, 字符串值转换后的值
-}
-
-func (a Argument) Name() string {
-	return a.Key
-}
-func (a Argument) String() string {
-	return a.Literal
-}
-func (a Argument) Val() interface{} {
-	return a.Value
+type argument struct {
+	key    string      // 参数名
+	source string      // 参数原始字符串
+	value  interface{} // 参数值, 字符串值转换后的值
 }
 
-type Literal struct {
-	Key   string // 参数名
-	Value string // 路径中的原始字符串
+func (a argument) Name() string {
+	return a.key
+}
+func (a argument) String() string {
+	return a.source
+}
+func (a argument) Val() interface{} {
+	return a.value
 }
 
-func (a Literal) Name() string {
-	return a.Key
+type sourceValue struct {
+	key   string // 参数名
+	value string // 路径中的原始字符串
 }
-func (a Literal) String() string {
-	return a.Value
+
+func (s sourceValue) Name() string {
+	return s.key
 }
-func (a Literal) Val() interface{} {
-	return a.Value
+func (s sourceValue) String() string {
+	return s.value
+}
+func (s sourceValue) Val() interface{} {
+	return s.value
 }
 
 // 参数值
@@ -42,12 +42,14 @@ type Parameter interface {
 	Val() interface{}
 }
 
-func Arg(name, literal string, val interface{}) Parameter {
-	return Argument{Key: name, Literal: literal, Value: val}
+// Argument 返回以参数名, 字符串值和转换后的变量构建一个 Parameter.
+func Argument(name, source string, val interface{}) Parameter {
+	return argument{name, source, val}
 }
 
-func Lite(name, literal string, _ interface{}) Parameter {
-	return Literal{Key: name, Value: literal}
+// Source 返回以参数名和字符串值构建一个 Parameter.
+func Source(name, source string, _ interface{}) Parameter {
+	return sourceValue{name, source}
 }
 
 // Params 保存从 URL.Path 中提取的参数.

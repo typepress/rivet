@@ -1,9 +1,6 @@
 package rivet
 
-import (
-	"net/http"
-	"unsafe"
-)
+import "net/http"
 
 // Rivet 包装 Router, 实现了支持注入的 http.Handler.
 type Rivet struct {
@@ -43,14 +40,7 @@ func (r *Rivet) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	c := Context{
-		Params: params,
-		Res:    rw,
-		Req:    req,
-		Vars:   make(map[unsafe.Pointer]interface{}, 0),
-	}
-
-	d.Dispatch(c)
+	d.Dispatch(BuildContext(params, rw, req))
 	return
 }
 

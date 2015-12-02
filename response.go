@@ -19,8 +19,7 @@ func NewResponse(rw http.ResponseWriter) *Response {
 // Flush 实现 http.Flusher 接口方法.
 // 如果原 http.ResponseWriter 实现了 http.Flusher 接口, 那么原 Flush() 方法会被调用.
 func (r *Response) Flush() {
-	flusher, ok := r.w.(http.Flusher)
-	if ok {
+	if flusher, ok := r.w.(http.Flusher); ok {
 		flusher.Flush()
 	}
 }

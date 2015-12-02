@@ -10,16 +10,16 @@ import (
 
 // Matches 汇集以命名为 key 的 Matcher 生成器. 内建列表:
 //
-// 	string  字符串, 缺省值.
-// 	alpha   [a-zA-Z]+
-// 	alnum   [a-zA-Z0-9]+
-// 	hex     [a-fA-F0-9]+
-// 	uint    可使用 strconv.ParseUint 进行转换, 支持 bitSize 参数
-// 	int     可使用 strconv.ParseInt 进行转换, 支持 bitSize 参数
-// 	reg     正则, 样例: ":id | ^id([0-9]+)$". 用 FindStringSubmatch 提取最后一个 Submatch.
+//  string  字符串, 缺省值.
+//  alpha   [a-zA-Z]+
+//  alnum   [a-zA-Z0-9]+
+//  hex     [a-fA-F0-9]+
+//  uint    可使用 strconv.ParseUint 进行转换, 支持 bitSize 参数
+//  int     可使用 strconv.ParseInt 进行转换, 支持 bitSize 参数
+//  reg     正则, 样例: ":id | ^id([0-9]+)$". 用 FindStringSubmatch 提取最后一个 Submatch.
 //
 // 其中: string, alpha, alnum, hex 可附加最小长度参数, 缺省值为 1.如:
-// 	":name string 10" 限制参数字符串字节长度不超过 10.
+//  ":name string 10" 限制参数字符串字节长度不超过 10.
 var Matches = map[string]func(string) Matcher{
 	"string": bString,
 	"alpha":  bAlpha,
@@ -83,24 +83,27 @@ func builder(exp string) Matcher {
 	return m
 }
 
-// MatcherFun 包装一个函数为 Matcher. 参数 fn, 可以是以下类型:
+// MatchFun 包装一个函数为 Matcher. 参数 fn, 可以是以下类型:
 //
 //   func(string) string
 //   func(string) interface{}
 //   func(string,*http.Request) string
 //   func(string,*http.Request) interface{}
-func MatcherFun(fun interface{}) Matcher {
-	switch fn := fun.(type) {
+func MatchFun(fn interface{}) (m Matcher, ok bool) {
+	ok = true
+	switch fn := fn.(type) {
 	case func(string) string:
-		return ssMatch(fn)
+		m = ssMatch(fn)
 	case func(string) interface{}:
-		return siMatch(fn)
+		m = siMatch(fn)
 	case func(string, *http.Request) string:
-		return srsMatch(fn)
+		m = srsMatch(fn)
 	case func(string, *http.Request) interface{}:
-		return sriMatch(fn)
+		m = sriMatch(fn)
+	default:
+		ok = false
 	}
-	panic("rivet: invalid argument for MatchFun")
+	return
 }
 
 type ssMatch func(string) string

@@ -8,10 +8,10 @@ import (
 )
 
 var (
-	id_string = TypePointerOf([]string{})
-	id_bytes  = TypePointerOf([][]byte{})
-	id_error  = TypePointerOf([]error{})
-	id_bool   = TypePointerOf([]bool{})
+	idString = TypePointerOf([]string{})
+	idBytes  = TypePointerOf([][]byte{})
+	idError  = TypePointerOf([]error{})
+	idBool   = TypePointerOf([]bool{})
 )
 
 // Dispatcher 接口用于派发
@@ -77,7 +77,7 @@ func (d dispatch) Dispatch(c Context) bool {
 
 	in := make([]reflect.Value, len(d.in))
 	for i := 0; i < len(d.in); i++ {
-		v, has = c.Var(d.in[i])
+		v, has = c.Pick(d.in[i])
 		if !has {
 			return false
 		}
@@ -96,13 +96,13 @@ func (d dispatch) Dispatch(c Context) bool {
 	}
 
 	switch d.out[0] {
-	case id_string:
+	case idString:
 		io.WriteString(c.Res, out[0].String())
 
-	case id_bytes:
+	case idBytes:
 		c.Res.Write(out[0].Bytes())
 
-	case id_error:
+	case idError:
 		if !out[0].IsNil() {
 			err, ok := out[0].Interface().(error)
 
@@ -111,7 +111,7 @@ func (d dispatch) Dispatch(c Context) bool {
 				return false
 			}
 		}
-	case id_bool:
+	case idBool:
 		if !out[0].Bool() {
 			return false
 		}
@@ -179,8 +179,8 @@ func Dispatch(handler ...interface{}) Dispatcher {
 			for i := 0; i < t.NumOut(); i++ {
 				out[i] = TypePointerOf(t.Out(i))
 			}
-			if out[0] == id_error || out[0] == id_string || out[0] == id_bytes || out[0] == id_bool ||
-				len(out) == 2 && out[1] == id_error {
+			if out[0] == idError || out[0] == idString || out[0] == idBytes || out[0] == idBool ||
+				len(out) == 2 && out[1] == idError {
 				d.out = out
 			}
 		}

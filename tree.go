@@ -276,8 +276,8 @@ type bucket struct {
 	ok     bool
 }
 
-// Of 调用 Match 返回 path 匹配到的节点, 忽略 http.Request , Params 和 error.
-func (t *Trie) Of(path string) (n *Trie) {
+// Node 调用 Match 返回 path 匹配到的节点, 忽略 http.Request , Params 和 error.
+func (t *Trie) Node(path string) (n *Trie) {
 	n, _, _ = t.Match(path, nil)
 	return
 }

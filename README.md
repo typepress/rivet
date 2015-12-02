@@ -1,7 +1,7 @@
 Rivet
 =====
 
-[![Go Walker](http://gowalker.org/api/v1/badge)](http://gowalker.org/github.com/typepress/rivet) [![status](https://sourcegraph.com/api/repos/github.com/typepress/rivet/.badges/status.png)](https://sourcegraph.com/github.com/typepress/rivet)
+[![Go Walker](https://gowalker.org/api/v1/badge)](https://gowalker.org/github.com/typepress/rivet)[![GoDoc](https://godoc.org/github.com/typepress/rivet?status.svg)](https://godoc.org/github.com/typepress/rivet)
 
 专注路由.
 [简洁](#简洁), [顺序匹配](#顺序匹配), [支持注入](#注入), [深度解耦](#深度解耦)的 http 路由管理器.
@@ -18,26 +18,25 @@ Rivet 版本号采用 [Semantic Versioning](http://semver.org/).
 简洁
 ====
 
-常规风格示例: 在本地运行此代码, 然后后点击 [这里](http://127.0.0.1:3000/Rivet)
+常规风格示例: 在本地运行此代码, 然后后点击 [这里](http://127.0.0.1:3282/Rivet)
 
 ```go
 package main
 
 import (
-    "io"
     "net/http"
 
     "github.com/typepress/rivet"
 )
 
 // 常规风格 handler
-func HelloWord(rw http.ResponseWriter, req *http.Request) {
+func helloWord(rw http.ResponseWriter, req *http.Request) {
     io.WriteString(rw, "Hello Word")
 }
 
-// 带参数的 handler.
-func Hi(params rivet.Params, rw http.ResponseWriter) {
-    io.WriteString(rw, "Hi "+params.Get("who")) // 提取参数 who
+// Context handler.
+func hi(c rivet.Context) {
+    c.WriteString("Hi "+c.Get("who")) // 提取参数 who
 }
 
 func main() {
@@ -46,10 +45,10 @@ func main() {
     mux := rivet.New()
 
     // 注册路由
-    mux.Get("/", HelloWord)
-    mux.Get("/:who", Hi) // 参数名设定为 "who"
+    mux.Get("/", helloWord)
+    mux.Get("/:who", hi) // 参数名设定为 "who"
     
-    http.ListenAndServe(":3000", mux) 
+    http.ListenAndServe(":3282", mux) 
 }
 ```
 
@@ -100,7 +99,7 @@ Catch-All
 "/hi",
 ```
 
-显然匹配顺序对决定匹配结果. Rivet 采用的匹配顺序为:
+显然匹配顺序影响匹配结果. Rivet 采用的匹配顺序为:
 
  1. 静态字符串优先, 
  2. 按添加路由的顺序进行匹配, "*", "**" 除外.
@@ -111,13 +110,13 @@ Catch-All
 深度解耦
 ========
 
-解耦使应用能切入到路由执行流程中的每一个环节. Rivet 对解耦做了很多工作. 大概可以分三个级别.
+解耦可以让应用切入到路由执行的每一个环节. Rivet 对解耦做了很多工作. 大概可以分三个级别.
 
  1. 底层级别 Trie, Params, Matcher 是 Rivet 的核心, 它们可以独立工作.
  2. 路由级别 Router 简单实现了注册和匹配路由.
  3. 注入级别 Rivet 实现了 http.Handler, 内部使用 Context 和 Dispatcher 支持注入.
 
-使用者以依据喜好决定如何使用.
+使用者依据喜好决定如何使用.
 
 
 注入
@@ -133,8 +132,8 @@ Context 起到变量容器作用, 支持注入(Injector)变量, 有三个关键�
     // MapTo 以 t 的类型为 key 把变量 v 关联到 context. 相同 t 值只保留一个.
     MapTo(v interface{}, t interface{})
 
-    // Var 以类型标识 t 为 key, 返回关联到 context 的变量.
-    Var(t unsafe.Pointer) interface{}
+    // Pick 以类型指针 t 为键值返回关联到 context 的变量.
+    Pick(t unsafe.Pointer) interface{}
 
     // Map 等同调用 MapTo(v, v).
     Map(v interface{})

@@ -83,7 +83,7 @@ func TestTrie(t *testing.T) {
 	}
 
 	for i, s := range urls {
-		m := r.Of(s)
+		m := r.Node(s)
 		if m == nil {
 			t.Fatal(routes[i], s)
 		}
