@@ -2,7 +2,7 @@ package rivet
 
 import "net/url"
 
-var BuildParameter = Source
+var BuildParameter = Source // 设置构建 Parameter 的方法
 
 type argument struct {
 	key    string      // 参数名
@@ -37,17 +37,22 @@ func (s sourceValue) Val() interface{} {
 
 // 参数值
 type Parameter interface {
+	// Name 返回参数名.
 	Name() string
+
+	// String 返回参数的字符串形式值.
 	String() string
+
+	// Val 返回字符串值解析转换后的参数值.
 	Val() interface{}
 }
 
-// Argument 返回以参数名, 字符串值和转换后的变量构建一个 Parameter.
+// Argument 返回以参数名, 字符串值和转换后的变量构建的 Parameter.
 func Argument(name, source string, val interface{}) Parameter {
 	return argument{name, source, val}
 }
 
-// Source 返回以参数名和字符串值构建一个 Parameter.
+// Source 返回以参数名和字符串值构建的 Parameter.
 func Source(name, source string, _ interface{}) Parameter {
 	return sourceValue{name, source}
 }
