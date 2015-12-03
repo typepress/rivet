@@ -2,75 +2,32 @@ package rivet
 
 import "net/url"
 
-var BuildParameter = Source
-
-type argument struct {
-	key    string      // 参数名
-	source string      // 参数原始字符串
-	value  interface{} // 参数值, 字符串值转换后的值
-}
-
-func (a argument) Name() string {
-	return a.key
-}
-func (a argument) String() string {
-	return a.source
-}
-func (a argument) Val() interface{} {
-	return a.value
-}
-
-type sourceValue struct {
-	key   string // 参数名
-	value string // 路径中的原始字符串
-}
-
-func (s sourceValue) Name() string {
-	return s.key
-}
-func (s sourceValue) String() string {
-	return s.value
-}
-func (s sourceValue) Val() interface{} {
-	return s.value
-}
-
-// 参数值
-type Parameter interface {
-	Name() string
-	String() string
-	Val() interface{}
-}
-
-// Argument 返回以参数名, 字符串值和转换后的变量构建一个 Parameter.
-func Argument(name, source string, val interface{}) Parameter {
-	return argument{name, source, val}
-}
-
-// Source 返回以参数名和字符串值构建一个 Parameter.
-func Source(name, source string, _ interface{}) Parameter {
-	return sourceValue{name, source}
+// Argument
+type Argument struct {
+	Name   string      // 参数名
+	Source string      // 参数原始字符串
+	Value  interface{} // 参数值, 字符串值转换后的值
 }
 
 // Params 保存从 URL.Path 中提取的参数.
-type Params []Parameter
+type Params []Argument
 
-// Get 返回第一个与 key 对应的字面值.
-func (p Params) Get(key string) string {
+// Get 返回第一个与 name 对应的字面值.
+func (p Params) Get(name string) string {
 	for _, a := range p {
-		if a.Name() == key {
-			return a.String()
+		if a.Name == name {
+			return a.Source
 		}
 	}
 
 	return ""
 }
 
-// Get 返回第一个与 key 对应的值.
-func (p Params) Value(key string) interface{} {
+// Get 返回第一个与 name 对应的值.
+func (p Params) Value(name string) interface{} {
 	for _, a := range p {
-		if a.Name() == key {
-			return a.Val()
+		if a.Name == name {
+			return a.Value
 		}
 	}
 
@@ -81,7 +38,7 @@ func (p Params) Value(key string) interface{} {
 func (p Params) Gets() map[string]string {
 	m := make(map[string]string, len(p))
 	for _, a := range p {
-		m[a.Name()] = a.String()
+		m[a.Name] = a.Source
 	}
 	return m
 }
@@ -90,7 +47,7 @@ func (p Params) Gets() map[string]string {
 func (p Params) Values() map[string]interface{} {
 	m := make(map[string]interface{}, len(p))
 	for _, a := range p {
-		m[a.Name()] = a.Val()
+		m[a.Name] = a.Value
 	}
 	return m
 }
@@ -98,6 +55,6 @@ func (p Params) Values() map[string]interface{} {
 // AddTo 将字面值添加到 v.
 func (p Params) AddTo(v url.Values) {
 	for _, a := range p {
-		v.Add(a.Name(), a.String())
+		v.Add(a.Name, a.Source)
 	}
 }

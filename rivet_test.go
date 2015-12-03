@@ -70,7 +70,6 @@ func TestTrie(t *testing.T) {
 	r := newTrie()
 	for _, s := range routes {
 		trie := r.Mix(s)
-
 		if trie.Word != nil {
 			t.Fatal(s, trie.Word.(string))
 		}
@@ -92,8 +91,7 @@ func TestTrie(t *testing.T) {
 		}
 
 		if m.Word.(string) != routes[i] {
-			m.Fprint(nil)
-			t.Fatal(routes[i], s)
+			t.Fatal(routes[i], s, m.String())
 		}
 	}
 }

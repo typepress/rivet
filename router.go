@@ -19,8 +19,8 @@ func echo(i interface{}) interface{} {
 //
 // 参数:
 //
-// 	method   Request.Method, 确定对应的 Root Trie. "*" 等同 "any"
-// 	urlPath  Request.URL.Path, 传递给 Trie.
+// 	method   Request.Method, "*" 等同 "any"
+// 	urlPath  Request.URL.Path, 缺省为 "/".
 // 	rw       http 响应, 传递给 Trie.
 // 	req      http 请求, 传递给 Trie.
 func (r Router) Match(method, urlPath string, req *http.Request) (t *Trie, params Params, err error) {
@@ -28,6 +28,10 @@ func (r Router) Match(method, urlPath string, req *http.Request) (t *Trie, param
 
 	if method == "*" {
 		method = "any"
+	}
+
+	if urlPath == "" {
+		urlPath = "/"
 	}
 
 	if t != nil {

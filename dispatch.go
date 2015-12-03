@@ -19,7 +19,7 @@ type Dispatcher interface {
 	Dispatch(c Context) bool
 }
 
-type dispatchs []dispatch
+type dispatchs []Dispatcher
 
 func (ds dispatchs) Dispatch(c Context) bool {
 	for _, d := range ds {
@@ -30,50 +30,20 @@ func (ds dispatchs) Dispatch(c Context) bool {
 	return true
 }
 
-type dispatch struct {
+// 反射调用
+type dispatcher struct {
 	fn         reflect.Value
 	in         []unsafe.Pointer
 	out        []unsafe.Pointer
-	i          interface{}
 	isVariadic bool
 }
 
-func (d dispatch) Dispatch(c Context) bool {
+func (d dispatcher) Dispatch(c Context) bool {
 	var (
 		v   interface{}
 		has bool
 		out []reflect.Value
 	)
-
-	if d.i != nil {
-		switch fn := d.i.(type) {
-		case func(Context):
-			fn(c)
-
-		case func(http.ResponseWriter, *http.Request):
-			fn(c.Res, c.Req)
-
-		case http.Handler:
-			fn.ServeHTTP(c.Res, c.Req)
-
-		case func(Params, http.ResponseWriter, *http.Request):
-			fn(c.Params, c.Res, c.Req)
-
-		case func(*http.Request):
-			fn(c.Req)
-
-		case func(http.ResponseWriter):
-			fn(c.Res)
-
-		case Dispatcher:
-			return fn.Dispatch(c)
-		case func():
-			fn()
-		default:
-			c.Map(d.i)
-		}
-		return true
-	}
 
 	in := make([]reflect.Value, len(d.in))
 	for i := 0; i < len(d.in); i++ {
@@ -131,6 +101,35 @@ func (d dispatch) Dispatch(c Context) bool {
 	return true
 }
 
+// 内置 type switches 调用
+type dispatch struct {
+	i interface{}
+}
+
+func (d dispatch) Dispatch(c Context) bool {
+	switch fn := d.i.(type) {
+	case func(Context):
+		fn(c)
+
+	case func(http.ResponseWriter, *http.Request):
+		fn(c.Res, c.Req)
+
+	case http.Handler:
+		fn.ServeHTTP(c.Res, c.Req)
+
+	case func(Params, http.ResponseWriter, *http.Request):
+		fn(c.Params, c.Res, c.Req)
+
+	case Dispatcher:
+		return fn.Dispatch(c)
+	case func():
+		fn()
+	default:
+		c.Map(d.i)
+	}
+	return true
+}
+
 // Dispatch 包装 handler 为 Dispatcher
 func Dispatch(handler ...interface{}) Dispatcher {
 	var fun reflect.Value
@@ -145,8 +144,6 @@ func Dispatch(handler ...interface{}) Dispatcher {
 		case
 			func(),
 			func(Context),
-			func(*http.Request),
-			func(http.ResponseWriter),
 			func(http.ResponseWriter, *http.Request),
 			func(Params, http.ResponseWriter, *http.Request),
 			http.Handler, Dispatcher:
@@ -156,13 +153,13 @@ func Dispatch(handler ...interface{}) Dispatcher {
 		default:
 			fun = reflect.ValueOf(i)
 			if fun.Kind() != reflect.Func {
-				ds = append(ds, dispatch{i: i})
+				ds = append(ds, dispatch{i})
 				continue
 			}
 		}
 
 		t := fun.Type()
-		d := dispatch{
+		d := dispatcher{
 			fn:         fun,
 			in:         make([]unsafe.Pointer, t.NumIn()),
 			isVariadic: t.IsVariadic(),
