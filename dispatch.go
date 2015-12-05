@@ -16,21 +16,41 @@ var (
 
 // Dispatcher 接口用于派发
 type Dispatcher interface {
-	Dispatch(c Context) bool
+	// IsInjector 返回 true, 表示使用 Dispatch 方法派发, 否则使用 Handle 派发
+	IsInjector() bool
+	Dispatch(c *Context) bool
+	Handle(Params, http.ResponseWriter, *http.Request) bool
 }
 
-type dispatchs []Dispatcher
+type dispatchs struct {
+	queue      []Dispatcher
+	isInjector bool
+}
 
-func (ds dispatchs) Dispatch(c Context) bool {
-	for _, d := range ds {
-		if !d.Dispatch(c) {
+func (ds dispatchs) IsInjector() bool { return ds.isInjector }
+func (ds dispatchs) Dispatch(c *Context) bool {
+	for _, d := range ds.queue {
+		if d.IsInjector() {
+			if !d.Dispatch(c) {
+				return false
+			}
+		} else if !d.Handle(c.Params, c.Res, c.Req) {
 			return false
 		}
 	}
 	return true
 }
 
-// 反射调用
+func (ds dispatchs) Handle(p Params, rw http.ResponseWriter, req *http.Request) bool {
+	for _, d := range ds.queue {
+		if !d.IsInjector() && !d.Handle(p, rw, req) {
+			return false
+		}
+	}
+	return true
+}
+
+// 注入反射调用
 type dispatcher struct {
 	fn         reflect.Value
 	in         []unsafe.Pointer
@@ -38,7 +58,9 @@ type dispatcher struct {
 	isVariadic bool
 }
 
-func (d dispatcher) Dispatch(c Context) bool {
+func (d dispatcher) IsInjector() bool                                       { return true }
+func (d dispatcher) Handle(Params, http.ResponseWriter, *http.Request) bool { return true }
+func (d dispatcher) Dispatch(c *Context) bool {
 	var (
 		v   interface{}
 		has bool
@@ -101,54 +123,127 @@ func (d dispatcher) Dispatch(c Context) bool {
 	return true
 }
 
-// 内置 type switches 调用
+type dispatchContext struct {
+	c func(*Context)
+	r func(*Context) bool
+}
+
+func (d dispatchContext) IsInjector() bool                                       { return true }
+func (d dispatchContext) Handle(Params, http.ResponseWriter, *http.Request) bool { return true }
+func (d dispatchContext) Dispatch(c *Context) bool {
+	if d.c == nil {
+		return d.r(c)
+	}
+	d.c(c)
+	return true
+}
+
+type dispatchHandle struct {
+	c func(http.ResponseWriter, *http.Request)
+	r func(http.ResponseWriter, *http.Request) bool
+}
+
+func (d dispatchHandle) IsInjector() bool         { return false }
+func (d dispatchHandle) Dispatch(_ *Context) bool { return true }
+func (d dispatchHandle) Handle(_ Params, rw http.ResponseWriter, req *http.Request) bool {
+	if d.c == nil {
+		return d.r(rw, req)
+	}
+	d.c(rw, req)
+	return true
+}
+
+type dispatchParams struct {
+	c func(Params, http.ResponseWriter, *http.Request)
+	r func(Params, http.ResponseWriter, *http.Request) bool
+}
+
+func (d dispatchParams) IsInjector() bool         { return false }
+func (d dispatchParams) Dispatch(_ *Context) bool { return true }
+func (d dispatchParams) Handle(p Params, rw http.ResponseWriter, req *http.Request) bool {
+	if d.c == nil {
+		return d.r(p, rw, req)
+	}
+	d.c(p, rw, req)
+	return true
+}
+
+type dispatchHandler struct {
+	http.Handler
+}
+
+func (d dispatchHandler) IsInjector() bool         { return false }
+func (d dispatchHandler) Dispatch(_ *Context) bool { return true }
+func (d dispatchHandler) Handle(_ Params, rw http.ResponseWriter, req *http.Request) bool {
+	d.ServeHTTP(rw, req)
+	return true
+}
+
+type dispatchEmpty func()
+
+func (d dispatchEmpty) IsInjector() bool         { return false }
+func (d dispatchEmpty) Dispatch(_ *Context) bool { return true }
+func (d dispatchEmpty) Handle(_ Params, _ http.ResponseWriter, _ *http.Request) bool {
+	d()
+	return true
+}
+
 type dispatch struct {
 	i interface{}
 }
 
-func (d dispatch) Dispatch(c Context) bool {
-	switch fn := d.i.(type) {
-	case func(Context):
-		fn(c)
-
-	case func(http.ResponseWriter, *http.Request):
-		fn(c.Res, c.Req)
-
-	case http.Handler:
-		fn.ServeHTTP(c.Res, c.Req)
-
-	case func(Params, http.ResponseWriter, *http.Request):
-		fn(c.Params, c.Res, c.Req)
-
-	case Dispatcher:
-		return fn.Dispatch(c)
-	case func():
-		fn()
-	default:
-		c.Map(d.i)
-	}
+func (d dispatch) IsInjector() bool                                       { return true }
+func (d dispatch) Handle(Params, http.ResponseWriter, *http.Request) bool { return true }
+func (d dispatch) Dispatch(c *Context) bool {
+	c.Map(d.i)
 	return true
 }
 
-// Dispatch 包装 handler 为 Dispatcher
-func Dispatch(handler ...interface{}) Dispatcher {
+// ToDispatcher 包装 handler 为 Dispatcher
+func ToDispatcher(handler ...interface{}) Dispatcher {
 	var fun reflect.Value
+	var withContext bool
 
-	ds := make(dispatchs, 0)
+	ds := make([]Dispatcher, 0)
 	for _, i := range handler {
 		if i == nil {
 			continue
 		}
 
-		switch i.(type) {
-		case
-			func(),
-			func(Context),
-			func(http.ResponseWriter, *http.Request),
-			func(Params, http.ResponseWriter, *http.Request),
-			http.Handler, Dispatcher:
+		switch d := i.(type) {
+		case func(*Context):
+			withContext = true
+			ds = append(ds, dispatchContext{c: d})
+			continue
+		case func():
+			ds = append(ds, dispatchEmpty(d))
+			continue
+		case func(http.ResponseWriter, *http.Request):
+			ds = append(ds, dispatchHandle{c: d})
+			continue
+		case func(Params, http.ResponseWriter, *http.Request):
+			ds = append(ds, dispatchParams{c: d})
+			continue
 
-			ds = append(ds, dispatch{i: i})
+		case func(*Context) bool:
+			withContext = true
+			ds = append(ds, dispatchContext{r: d})
+			continue
+		case func(http.ResponseWriter, *http.Request) bool:
+			ds = append(ds, dispatchHandle{r: d})
+			continue
+		case func(Params, http.ResponseWriter, *http.Request) bool:
+			ds = append(ds, dispatchParams{r: d})
+			continue
+
+		case http.Handler:
+			ds = append(ds, dispatchHandler{d})
+			continue
+		case Dispatcher:
+			if d.IsInjector() {
+				withContext = true
+			}
+			ds = append(ds, d)
 			continue
 		default:
 			fun = reflect.ValueOf(i)
@@ -167,6 +262,9 @@ func Dispatch(handler ...interface{}) Dispatcher {
 
 		for i := 0; i < t.NumIn(); i++ {
 			d.in[i] = TypePointerOf(t.In(i))
+			if d.in[i] == idContext {
+				withContext = true
+			}
 		}
 
 		if t.NumOut() > 0 && t.NumOut() <= 2 {
@@ -188,6 +286,8 @@ func Dispatch(handler ...interface{}) Dispatcher {
 	if len(ds) == 0 {
 		return nil
 	}
-
-	return ds
+	if len(ds) == 1 {
+		return ds[0]
+	}
+	return dispatchs{queue: ds, isInjector: withContext}
 }

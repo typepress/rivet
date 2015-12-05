@@ -12,7 +12,7 @@ type Argument struct {
 // Params 保存从 URL.Path 中提取的参数.
 type Params []Argument
 
-// Get 返回第一个与 name 对应的字面值.
+// Get 返回第一个与 name 对应的字符串.
 func (p Params) Get(name string) string {
 	for _, a := range p {
 		if a.Name == name {
@@ -34,7 +34,7 @@ func (p Params) Value(name string) interface{} {
 	return nil
 }
 
-// Gets 返回所有的原始字面值
+// Gets 返回所有的原始字符串
 func (p Params) Gets() map[string]string {
 	m := make(map[string]string, len(p))
 	for _, a := range p {

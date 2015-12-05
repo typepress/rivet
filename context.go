@@ -10,7 +10,7 @@ import (
 var (
 	idRequest        = TypePointerOf([]*http.Request{})
 	idResponseWriter = TypePointerOf([]http.ResponseWriter{})
-	idContext        = TypePointerOf([]Context{})
+	idContext        = TypePointerOf([]*Context{})
 	idParams         = TypePointerOf([]Params{})
 )
 
@@ -50,7 +50,7 @@ func TypePointerOf(i interface{}) unsafe.Pointer {
 	return (*emptyInterface)(unsafe.Pointer(&i)).Type
 }
 
-// Context 主要起到变量容器作用, 请使用 BuildContext 构建.
+// Context 主要起到变量容器作用, 请使用 NewContext 构建.
 type Context struct {
 	Params
 	Res     http.ResponseWriter
@@ -58,15 +58,15 @@ type Context struct {
 	partner map[unsafe.Pointer]interface{} // 保存响应期关联变量
 }
 
-// BuildContext 构建 Context.
-func BuildContext(params Params, res http.ResponseWriter, req *http.Request) Context {
-	return Context{params, res, req, make(map[unsafe.Pointer]interface{}, 0)}
+// NewContext 构建 Context.
+func NewContext(params Params, res http.ResponseWriter, req *http.Request) *Context {
+	return &Context{params, res, req, nil}
 }
 
 // Pick 返回类型指针 t 为键值的关联变量.
 // 如果 t 表示 Context, Params, http.ResponseWriter, *http.Request 类型,
 // Pick 直接返回 c 或者相应成员, 否则返回 MapTo 关联的变量.
-func (c Context) Pick(t unsafe.Pointer) (v interface{}, ok bool) {
+func (c *Context) Pick(t unsafe.Pointer) (v interface{}, ok bool) {
 	switch t {
 	case idContext:
 		return c, true
@@ -77,22 +77,27 @@ func (c Context) Pick(t unsafe.Pointer) (v interface{}, ok bool) {
 	case idParams:
 		return c.Params, true
 	}
-	v, ok = c.partner[t]
+	if c.partner != nil {
+		v, ok = c.partner[t]
+	}
 	return
 }
 
 // Map 等同 MapTo(v, v).
-func (c Context) Map(v interface{}) {
-	c.partner[TypePointerOf(v)] = v
+func (c *Context) Map(v interface{}) {
+	c.MapTo(v, v)
 }
 
 // MapTo 以 TypePointerOf(t) 为键值把变量 v 关联到 context. 相同 t 值只保留一个.
 // 无需保存 Context, Params, http.ResponseWriter, *http.Request 类型变量, 参见 Pick.
-func (c Context) MapTo(v interface{}, t interface{}) {
+func (c *Context) MapTo(v interface{}, t interface{}) {
+	if c.partner == nil {
+		c.partner = make(map[unsafe.Pointer]interface{}, 1)
+	}
 	c.partner[TypePointerOf(t)] = v
 }
 
 // WriteString 是个便捷方法
-func (c Context) WriteString(s string) (int, error) {
+func (c *Context) WriteString(s string) (int, error) {
 	return io.WriteString(c.Res, s)
 }

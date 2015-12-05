@@ -2,6 +2,7 @@ package rivet
 
 import (
 	"net/http"
+	"strings"
 )
 
 // Router 管理路由.
@@ -121,4 +122,68 @@ func (r Router) Handle(method string, pattern string, handler ...interface{}) *T
 	}
 
 	return trie
+}
+
+// HostRouter 是个简单的 Host 路由
+type HostRouter struct {
+	host        *Trie
+	HandleError func(error, http.ResponseWriter, *http.Request) // 处理路由匹配错误
+}
+
+// NewHostRouter
+func NewHostRouter() *HostRouter {
+	return &HostRouter{newTrie(), HandleError}
+}
+
+// Add 添加 host 路由 handler. 仅仅支持三种 handler:
+//
+//   func(Params, http.ResponseWriter, *http.Request),
+//   func(http.ResponseWriter, *http.Request),
+//   http.Handler:
+func (r *HostRouter) Add(pattern string, handler interface{}) *Trie {
+	switch handler.(type) {
+	case
+		func(Params, http.ResponseWriter, *http.Request),
+		func(http.ResponseWriter, *http.Request),
+		http.Handler:
+	default:
+		panic("rivet: HostRouter not supported the handler")
+	}
+
+	t := r.host.Add(pattern)
+	t.Word = handler
+	return t
+}
+
+// ServeHTTP
+func (r *HostRouter) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
+
+	host := req.Host
+	i := strings.LastIndexByte(host, ':')
+	if i != -1 {
+		host = host[0:i]
+	}
+
+	trie, params, err := r.host.Match(host, req)
+
+	if err != nil {
+		r.HandleError(err, rw, req)
+		return
+	}
+
+	if trie == nil {
+		r.HandleError(StatusNotFound, rw, req)
+		return
+	}
+
+	switch handle := trie.Word.(type) {
+	case func(Params, http.ResponseWriter, *http.Request):
+		handle(params, rw, req)
+	case func(http.ResponseWriter, *http.Request):
+		handle(rw, req)
+	case http.Handler:
+		handle.ServeHTTP(rw, req)
+	default:
+		r.HandleError(StatusNotImplemented, rw, req)
+	}
 }

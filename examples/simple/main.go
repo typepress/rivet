@@ -22,11 +22,11 @@ func catchAll(c rivet.Context) {
 	c.WriteString("CatchAll:" + c.Get("**"))
 }
 
-func letGo(c rivet.Context) {
+func letGo(c *rivet.Context) {
 	c.Map("Death is coming. Let's Go!")
 }
 
-func goGo(c rivet.Context) {
+func goGo(c *rivet.Context) {
 	var s string
 
 	i, has := c.Pick(rivet.TypePointerOf("string"))

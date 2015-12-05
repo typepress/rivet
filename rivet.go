@@ -5,15 +5,13 @@ import "net/http"
 // Rivet 包装 Router, 实现了支持注入的 http.Handler.
 type Rivet struct {
 	router      Router
-	NotFound    http.Handler
-	HandleError func(error, http.ResponseWriter, *http.Request)
+	HandleError func(error, http.ResponseWriter, *http.Request) // 处理路由匹配错误
 }
 
 // New 新建 *Rivet
 func New() *Rivet {
 	return &Rivet{
 		router:      map[string]*Trie{},
-		NotFound:    http.NotFoundHandler(),
 		HandleError: HandleError,
 	}
 }
@@ -28,20 +26,23 @@ func (r *Rivet) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	if trie == nil || trie.Word == nil {
-		r.NotFound.ServeHTTP(rw, req)
+	if trie == nil {
+		r.HandleError(StatusNotFound, rw, req)
 		return
 	}
-
 	d, ok := trie.Word.(Dispatcher)
 
 	if !ok {
-		r.NotFound.ServeHTTP(rw, req)
+		r.HandleError(StatusNotImplemented, rw, req)
 		return
 	}
 
-	d.Dispatch(BuildContext(params, rw, req))
-	return
+	if !d.IsInjector() {
+		d.Handle(params, rw, req)
+		return
+	}
+
+	d.Dispatch(NewContext(params, rw, req))
 }
 
 func (r *Rivet) Match(method, urlPath string, req *http.Request) (trie *Trie, params Params, err error) {
@@ -88,6 +89,6 @@ func (r *Rivet) Root(method string) *Trie {
 // 这意味着返回的 Trie.Word 为 nil 或者 Dispatcher.
 func (r *Rivet) Handle(method string, pattern string, handler ...interface{}) *Trie {
 	t := r.router.Handle(method, pattern)
-	t.Word = Dispatch(handler...)
+	t.Word = ToDispatcher(handler...)
 	return t
 }

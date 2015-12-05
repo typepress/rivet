@@ -159,6 +159,58 @@ func TestStatic(t *testing.T) {
 	}
 }
 
+func testTrieAdd(t *testing.T, routes, urls []string) {
+	r := newTrie()
+	for _, s := range routes {
+		trie := r.Add(s)
+		if trie.Word != nil {
+			t.Fatal(s, trie.Word.(string))
+		}
+
+		s1 := trie.String()
+		if s1 != s {
+			t.Fatal(s, s1)
+		}
+		trie.Word = s
+	}
+
+	for i, s := range urls {
+		m, p, err := r.Match(s, nil)
+		if m == nil {
+			t.Fatal(routes[i], s)
+		}
+		if m.Word == nil {
+			t.Fatal(m.String(), p, err, routes[i], s)
+		}
+
+		if m.Word.(string) != routes[i] {
+			t.Fatal(routes[i], s, m.String())
+		}
+	}
+}
+
+func TestTrie_Add(t *testing.T) {
+	testTrieAdd(t, routes, urls)
+}
+
+func Test_HostRouter(t *testing.T) {
+	testTrieAdd(t, []string{
+		"a.b.c",
+		"a.b.c:80",
+		":name.b.c",
+		"api.:name.b.c",
+		":id uint.a.b.c",
+		"id*.a.b.c",
+	}, []string{
+		"a.b.c",
+		"a.b.c:80",
+		"api.b.c",
+		"api.a.b.c",
+		"123.a.b.c",
+		"id123.a.b.c",
+	})
+}
+
 var staticRoutes = []string{
 	"/",
 	"/cmd.html",
@@ -317,4 +369,40 @@ var staticRoutes = []string{
 	"/progs/timeout1.go",
 	"/progs/timeout2.go",
 	"/progs/update.bash",
+}
+
+func rivetHandler(c *Context) {}
+
+func BenchmarkRivet_Match(b *testing.B) {
+	r := New()
+
+	for _, path := range staticRoutes {
+		r.Get(path, rivetHandler)
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		for _, path := range staticRoutes {
+			r.Match("GET", path, nil)
+		}
+	}
+}
+
+func BenchmarkTrie_Match(b *testing.B) {
+	r := newTrie()
+
+	for _, path := range staticRoutes {
+		r.Mix(path).Word = 0
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		for _, path := range staticRoutes {
+			r.Match(path, nil)
+		}
+	}
 }
