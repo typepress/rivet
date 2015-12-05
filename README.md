@@ -4,9 +4,9 @@ Rivet
 [![Go Walker](https://gowalker.org/api/v1/badge)](https://gowalker.org/github.com/typepress/rivet)
 [![GoDoc](https://godoc.org/github.com/typepress/rivet?status.svg)](https://godoc.org/github.com/typepress/rivet)
 
-[性能](#Performance) 可观的 http 路由管理器. 特征:
+[性能](#performance) 可观的 http 路由管理器. 特征:
 
-[简洁](#简洁), [顺序匹配](#顺序匹配), [支持注入](#注入), [深度解耦](#深度解耦), [HostRouter](#HostRouter).
+[简洁](#简洁), [顺序匹配](#顺序匹配), [支持注入](#注入), [深度解耦](#深度解耦), [HostRouter](#hostrouter).
 
 [examples][] 目录中有几个例子, 方便您了解 Rivet.
 
