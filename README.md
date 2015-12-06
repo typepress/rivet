@@ -164,7 +164,18 @@ Dispatch 方法包装路由 handler, 结合 Context 实现支持注入的路由�
 HostRouter
 ==========
 
-HostRouter 实现了一个简单的 Host 路由.
+HostRouter 是个简单的 Host 路由. 如果和 Rivet 配合可实现完整的 http 路由, 比如:
+
+```
+hr := rivet.NewHostRouter()
+
+// 为域名分配独立的 *Rivet, 当然别忘记给他们注册路由
+golang := rivet.New()
+godoc := rivet.New()
+
+hr.Add("*.golang.org", golang)
+hr.Add("*.godoc.org", godoc)
+```
 
 
 Performance

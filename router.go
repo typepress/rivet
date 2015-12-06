@@ -135,36 +135,21 @@ func NewHostRouter() *HostRouter {
 	return &HostRouter{newTrie(), HandleError}
 }
 
-// Add 添加 host 路由 handler. 仅仅支持三种 handler:
-//
-//   func(Params, http.ResponseWriter, *http.Request),
-//   func(http.ResponseWriter, *http.Request),
-//   http.Handler:
-func (r *HostRouter) Add(pattern string, handler interface{}) *Trie {
-	switch handler.(type) {
-	case
-		func(Params, http.ResponseWriter, *http.Request),
-		func(http.ResponseWriter, *http.Request),
-		http.Handler:
-	default:
-		panic("rivet: HostRouter not supported the handler")
+// Add 添加 host 路由 handler.
+func (r *HostRouter) Add(pattern string, handler ...interface{}) *Trie {
+	if strings.IndexByte(pattern, '/') != -1 {
+		panic("rivet: invalid host pattern: " + pattern)
 	}
 
 	t := r.host.Add(pattern)
-	t.Word = handler
+	t.Word = ToDispatcher(handler...)
 	return t
 }
 
 // ServeHTTP
 func (r *HostRouter) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 
-	host := req.Host
-	i := strings.LastIndexByte(host, ':')
-	if i != -1 {
-		host = host[0:i]
-	}
-
-	trie, params, err := r.host.Match(host, req)
+	trie, params, err := r.host.Match(req.Host, req)
 
 	if err != nil {
 		r.HandleError(err, rw, req)
@@ -175,15 +160,16 @@ func (r *HostRouter) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 		r.HandleError(StatusNotFound, rw, req)
 		return
 	}
+	d, ok := trie.Word.(Dispatcher)
 
-	switch handle := trie.Word.(type) {
-	case func(Params, http.ResponseWriter, *http.Request):
-		handle(params, rw, req)
-	case func(http.ResponseWriter, *http.Request):
-		handle(rw, req)
-	case http.Handler:
-		handle.ServeHTTP(rw, req)
-	default:
+	if !ok {
 		r.HandleError(StatusNotImplemented, rw, req)
+		return
+	}
+
+	if d.IsInjector() {
+		d.Dispatch(NewContext(params, rw, req))
+	} else {
+		d.Hand(params, rw, req)
 	}
 }

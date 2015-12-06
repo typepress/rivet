@@ -16,10 +16,10 @@ var (
 
 // Dispatcher 接口用于派发
 type Dispatcher interface {
-	// IsInjector 返回 true, 表示使用 Dispatch 方法派发, 否则使用 Handle 派发
+	// IsInjector 返回 true, 表示使用 Dispatch 方法派发, 否则使用 Hand 派发
 	IsInjector() bool
 	Dispatch(c *Context) bool
-	Handle(Params, http.ResponseWriter, *http.Request) bool
+	Hand(Params, http.ResponseWriter, *http.Request) bool
 }
 
 type dispatchs struct {
@@ -34,16 +34,16 @@ func (ds dispatchs) Dispatch(c *Context) bool {
 			if !d.Dispatch(c) {
 				return false
 			}
-		} else if !d.Handle(c.Params, c.Res, c.Req) {
+		} else if !d.Hand(c.Params, c.Res, c.Req) {
 			return false
 		}
 	}
 	return true
 }
 
-func (ds dispatchs) Handle(p Params, rw http.ResponseWriter, req *http.Request) bool {
+func (ds dispatchs) Hand(p Params, rw http.ResponseWriter, req *http.Request) bool {
 	for _, d := range ds.queue {
-		if !d.IsInjector() && !d.Handle(p, rw, req) {
+		if !d.IsInjector() && !d.Hand(p, rw, req) {
 			return false
 		}
 	}
@@ -58,8 +58,8 @@ type dispatcher struct {
 	isVariadic bool
 }
 
-func (d dispatcher) IsInjector() bool                                       { return true }
-func (d dispatcher) Handle(Params, http.ResponseWriter, *http.Request) bool { return true }
+func (d dispatcher) IsInjector() bool                                     { return true }
+func (d dispatcher) Hand(Params, http.ResponseWriter, *http.Request) bool { return true }
 func (d dispatcher) Dispatch(c *Context) bool {
 	var (
 		v   interface{}
@@ -128,8 +128,8 @@ type dispatchContext struct {
 	r func(*Context) bool
 }
 
-func (d dispatchContext) IsInjector() bool                                       { return true }
-func (d dispatchContext) Handle(Params, http.ResponseWriter, *http.Request) bool { return true }
+func (d dispatchContext) IsInjector() bool                                     { return true }
+func (d dispatchContext) Hand(Params, http.ResponseWriter, *http.Request) bool { return true }
 func (d dispatchContext) Dispatch(c *Context) bool {
 	if d.c == nil {
 		return d.r(c)
@@ -145,7 +145,7 @@ type dispatchHandle struct {
 
 func (d dispatchHandle) IsInjector() bool         { return false }
 func (d dispatchHandle) Dispatch(_ *Context) bool { return true }
-func (d dispatchHandle) Handle(_ Params, rw http.ResponseWriter, req *http.Request) bool {
+func (d dispatchHandle) Hand(_ Params, rw http.ResponseWriter, req *http.Request) bool {
 	if d.c == nil {
 		return d.r(rw, req)
 	}
@@ -160,7 +160,7 @@ type dispatchParams struct {
 
 func (d dispatchParams) IsInjector() bool         { return false }
 func (d dispatchParams) Dispatch(_ *Context) bool { return true }
-func (d dispatchParams) Handle(p Params, rw http.ResponseWriter, req *http.Request) bool {
+func (d dispatchParams) Hand(p Params, rw http.ResponseWriter, req *http.Request) bool {
 	if d.c == nil {
 		return d.r(p, rw, req)
 	}
@@ -174,7 +174,7 @@ type dispatchHandler struct {
 
 func (d dispatchHandler) IsInjector() bool         { return false }
 func (d dispatchHandler) Dispatch(_ *Context) bool { return true }
-func (d dispatchHandler) Handle(_ Params, rw http.ResponseWriter, req *http.Request) bool {
+func (d dispatchHandler) Hand(_ Params, rw http.ResponseWriter, req *http.Request) bool {
 	d.ServeHTTP(rw, req)
 	return true
 }
@@ -183,7 +183,7 @@ type dispatchEmpty func()
 
 func (d dispatchEmpty) IsInjector() bool         { return false }
 func (d dispatchEmpty) Dispatch(_ *Context) bool { return true }
-func (d dispatchEmpty) Handle(_ Params, _ http.ResponseWriter, _ *http.Request) bool {
+func (d dispatchEmpty) Hand(_ Params, _ http.ResponseWriter, _ *http.Request) bool {
 	d()
 	return true
 }
@@ -192,8 +192,8 @@ type dispatch struct {
 	i interface{}
 }
 
-func (d dispatch) IsInjector() bool                                       { return true }
-func (d dispatch) Handle(Params, http.ResponseWriter, *http.Request) bool { return true }
+func (d dispatch) IsInjector() bool                                     { return true }
+func (d dispatch) Hand(Params, http.ResponseWriter, *http.Request) bool { return true }
 func (d dispatch) Dispatch(c *Context) bool {
 	c.Map(d.i)
 	return true
@@ -236,15 +236,17 @@ func ToDispatcher(handler ...interface{}) Dispatcher {
 			ds = append(ds, dispatchParams{r: d})
 			continue
 
-		case http.Handler:
-			ds = append(ds, dispatchHandler{d})
-			continue
+		// Dispatcher 接口优先于其它接口.
 		case Dispatcher:
 			if d.IsInjector() {
 				withContext = true
 			}
 			ds = append(ds, d)
 			continue
+		case http.Handler:
+			ds = append(ds, dispatchHandler{d})
+			continue
+
 		default:
 			fun = reflect.ValueOf(i)
 			if fun.Kind() != reflect.Func {

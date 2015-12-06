@@ -3,6 +3,7 @@ package rivet
 import "net/http"
 
 // Rivet 包装 Router, 实现了支持注入的 http.Handler.
+// Rivet 实现了 Dispatcher 接口, 并以 Handle 方法处理.
 type Rivet struct {
 	router      Router
 	HandleError func(error, http.ResponseWriter, *http.Request) // 处理路由匹配错误
@@ -13,6 +14,47 @@ func New() *Rivet {
 	return &Rivet{
 		router:      map[string]*Trie{},
 		HandleError: HandleError,
+	}
+}
+
+// IsInjector 总是返回 false
+func (r *Rivet) IsInjector() bool { return false }
+
+// Dispatch 总是直接返回 true
+func (r *Rivet) Dispatch(c *Context) bool { return true }
+
+// Hand 在处理请求时, 会把参数 args 和 req.URL.Path 匹配到的参数合并
+func (r *Rivet) Hand(args Params, rw http.ResponseWriter, req *http.Request) bool {
+	trie, params, err := r.router.Match(req.Method, req.URL.Path, req)
+
+	if err != nil {
+		r.HandleError(err, rw, req)
+		return false
+	}
+
+	if trie == nil {
+		r.HandleError(StatusNotFound, rw, req)
+		return false
+	}
+	d, ok := trie.Word.(Dispatcher)
+
+	if !ok {
+		r.HandleError(StatusNotImplemented, rw, req)
+		return false
+	}
+
+	if len(args) != 0 {
+		if len(params) == 0 {
+			params = args
+		} else {
+			params = append(params, args...)
+		}
+	}
+
+	if d.IsInjector() {
+		return d.Dispatch(NewContext(params, rw, req))
+	} else {
+		return d.Hand(params, rw, req)
 	}
 }
 
@@ -37,12 +79,11 @@ func (r *Rivet) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	if !d.IsInjector() {
-		d.Handle(params, rw, req)
-		return
+	if d.IsInjector() {
+		d.Dispatch(NewContext(params, rw, req))
+	} else {
+		d.Hand(params, rw, req)
 	}
-
-	d.Dispatch(NewContext(params, rw, req))
 }
 
 func (r *Rivet) Match(method, urlPath string, req *http.Request) (trie *Trie, params Params, err error) {
