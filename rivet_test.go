@@ -32,6 +32,8 @@ var routes = []string{
 	"/:name/path/**",
 	"/:name/*/to",
 	`/just:id ^\d+$`,
+	"/tips?",
+	"/slash/?",
 }
 
 var urls = []string{
@@ -64,151 +66,26 @@ var urls = []string{
 	"/name/path/star/star",
 	"/name/star/to",
 	"/just998",
+	"/tip",
+	"/slash/",
 }
 
-func TestTrie(t *testing.T) {
-	r := newTrie()
-	for _, s := range routes {
-		trie := r.Mix(s)
-		if trie.Word != nil {
-			t.Fatal(s, trie.Word.(string))
-		}
-
-		s1 := trie.String()
-		if s1 != s {
-			t.Fatal(s, s1)
-		}
-		trie.Word = s
-	}
-
-	for i, s := range urls {
-		m := r.Node(s)
-		if m == nil {
-			t.Fatal(routes[i], s)
-		}
-		if m.Word == nil {
-			t.Fatal(m.String(), routes[i], s)
-		}
-
-		if m.Word.(string) != routes[i] {
-			t.Fatal(routes[i], s, m.String())
-		}
-	}
+var hostRoutes = []string{
+	"a.b.c",
+	"a.b.c:80",
+	":name.b.c",
+	"api.:name.b.c",
+	":id uint.a.b.c",
+	"id*.a.b.c",
 }
 
-func TestRouter(t *testing.T) {
-
-	r := Router{}
-	for _, s := range routes {
-		trie := r.Get(s)
-
-		if trie.Word != nil {
-			t.Fatal(s, trie.Word.(string))
-		}
-
-		s1 := trie.String()
-		if s1 != s {
-			t.Fatal(s, s1)
-		}
-		trie.Word = s
-	}
-
-	for i, s := range urls {
-		m, _, _ := r.Match("GET", s, nil)
-		if m == nil {
-			t.Fatal(routes[i], s)
-		}
-		if m.Word == nil {
-			t.Fatal(m.String(), routes[i], s)
-		}
-		if m.Word.(string) != routes[i] {
-			t.Fatal(routes[i], m.String())
-		}
-	}
-}
-
-func TestStatic(t *testing.T) {
-
-	r := Router{}
-	for _, s := range staticRoutes {
-		trie := r.Get(s)
-
-		if trie.Word != nil {
-			t.Fatal(s, trie.Word.(string))
-		}
-
-		s1 := trie.String()
-		if s1 != s {
-			t.Fatal(s, s1)
-		}
-		trie.Word = s
-	}
-
-	for i, s := range staticRoutes {
-		m, _, _ := r.Match("GET", s, nil)
-		if m == nil {
-			t.Fatal(staticRoutes[i], s)
-		}
-		if m.Word == nil {
-			t.Fatal(m.String(), staticRoutes[i], s)
-		}
-		if m.Word.(string) != staticRoutes[i] {
-			m.Fprint(nil)
-			t.Fatal(staticRoutes[i], s)
-		}
-	}
-}
-
-func testTrieAdd(t *testing.T, routes, urls []string) {
-	r := newTrie()
-	for _, s := range routes {
-		trie := r.Add(s)
-		if trie.Word != nil {
-			t.Fatal(s, trie.Word.(string))
-		}
-
-		s1 := trie.String()
-		if s1 != s {
-			t.Fatal(s, s1)
-		}
-		trie.Word = s
-	}
-
-	for i, s := range urls {
-		m, p, err := r.Match(s, nil)
-		if m == nil {
-			t.Fatal(routes[i], s)
-		}
-		if m.Word == nil {
-			t.Fatal(m.String(), p, err, routes[i], s)
-		}
-
-		if m.Word.(string) != routes[i] {
-			t.Fatal(routes[i], s, m.String())
-		}
-	}
-}
-
-func TestTrie_Add(t *testing.T) {
-	testTrieAdd(t, routes, urls)
-}
-
-func Test_HostRouter(t *testing.T) {
-	testTrieAdd(t, []string{
-		"a.b.c",
-		"a.b.c:80",
-		":name.b.c",
-		"api.:name.b.c",
-		":id uint.a.b.c",
-		"id*.a.b.c",
-	}, []string{
-		"a.b.c",
-		"a.b.c:80",
-		"api.b.c",
-		"api.a.b.c",
-		"123.a.b.c",
-		"id123.a.b.c",
-	})
+var hosts = []string{
+	"a.b.c",
+	"a.b.c:80",
+	"api.b.c",
+	"api.a.b.c",
+	"123.a.b.c",
+	"id123.a.b.c",
 }
 
 var staticRoutes = []string{
@@ -371,9 +248,58 @@ var staticRoutes = []string{
 	"/progs/update.bash",
 }
 
+func testTrie(t *testing.T, r *Trie, method func(string) *Trie, routes, urls []string) {
+
+	for _, s := range routes {
+		trie := method(s)
+		if trie.Word != nil {
+			t.Fatal(s, trie.Word.(string))
+		}
+
+		s1 := trie.String()
+		if s1 != s {
+			t.Fatal(s, s1)
+		}
+		trie.Word = s
+	}
+
+	for i, s := range urls {
+		m, p, err := r.Match(s, nil)
+		if m == nil {
+			t.Fatal(routes[i], s)
+		}
+		if m.Word == nil {
+			t.Fatal(m.String(), p, err, routes[i], s)
+		}
+
+		if m.Word.(string) != routes[i] {
+			t.Fatal(routes[i], s, m.String())
+		}
+	}
+}
+
+func TestTrie_Mix(t *testing.T) {
+	r := newTrie('/')
+	testTrie(t, r, r.Mix, routes, urls)
+
+	r = newTrie('/')
+	testTrie(t, r, r.Mix, staticRoutes, staticRoutes)
+}
+
+func TestTrie_Add(t *testing.T) {
+	r := newTrie('/')
+	testTrie(t, r, r.Add, routes, urls)
+
+	r = newTrie('/')
+	testTrie(t, r, r.Add, staticRoutes, staticRoutes)
+
+	r = newTrie('.')
+	testTrie(t, r, r.Add, hostRoutes, hosts)
+}
+
 func rivetHandler(c *Context) {}
 
-func BenchmarkRivet_Match(b *testing.B) {
+func BenchmarkRivet_Static(b *testing.B) {
 	r := New()
 
 	for _, path := range staticRoutes {
@@ -390,8 +316,8 @@ func BenchmarkRivet_Match(b *testing.B) {
 	}
 }
 
-func BenchmarkTrie_Match(b *testing.B) {
-	r := newTrie()
+func BenchmarkTrie_Static(b *testing.B) {
+	r := newTrie('/')
 
 	for _, path := range staticRoutes {
 		r.Mix(path).Word = 0
@@ -404,5 +330,17 @@ func BenchmarkTrie_Match(b *testing.B) {
 		for _, path := range staticRoutes {
 			r.Match(path, nil)
 		}
+	}
+}
+
+func BenchmarkTrie_Params20(b *testing.B) {
+	r := newTrie('/')
+
+	r.Mix("/:a/:b/:c/:d/:e/:f/:g/:h/:i/:j/:k/:l/:m/:n/:o/:p/:q/:r/:s/:t").Word = 0
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		r.Match("/a/b/c/d/e/f/g/h/i/j/k/l/m/n/o/p/q/r/s/t", nil)
 	}
 }

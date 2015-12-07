@@ -52,7 +52,7 @@ func (r *Rivet) Hand(args Params, rw http.ResponseWriter, req *http.Request) boo
 	}
 
 	if d.IsInjector() {
-		return d.Dispatch(NewContext(params, rw, req))
+		return d.Dispatch(&Context{Params: params, Res: rw, Req: req})
 	} else {
 		return d.Hand(params, rw, req)
 	}
@@ -60,7 +60,6 @@ func (r *Rivet) Hand(args Params, rw http.ResponseWriter, req *http.Request) boo
 
 // ServeHTTP 实现了 http.Handler 接口.
 func (r *Rivet) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
-
 	trie, params, err := r.router.Match(req.Method, req.URL.Path, req)
 
 	if err != nil {
@@ -80,7 +79,7 @@ func (r *Rivet) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	}
 
 	if d.IsInjector() {
-		d.Dispatch(NewContext(params, rw, req))
+		d.Dispatch(&Context{Params: params, Res: rw, Req: req})
 	} else {
 		d.Hand(params, rw, req)
 	}

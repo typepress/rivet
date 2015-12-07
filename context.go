@@ -50,17 +50,17 @@ func TypePointerOf(i interface{}) unsafe.Pointer {
 	return (*emptyInterface)(unsafe.Pointer(&i)).Type
 }
 
-// Context 主要起到变量容器作用, 请使用 NewContext 构建.
+// Context 主要是注入变量的容器.
 type Context struct {
 	Params
-	Res     http.ResponseWriter
-	Req     *http.Request
-	partner map[unsafe.Pointer]interface{} // 保存响应期关联变量
-}
+	Res http.ResponseWriter
+	Req *http.Request
 
-// NewContext 构建 Context.
-func NewContext(params Params, res http.ResponseWriter, req *http.Request) *Context {
-	return &Context{params, res, req, nil}
+	// Store 是个简单的数据容器, 以字符串为 Key 存储变量.
+	// 当不需要反射调用时, 使用 Store 更轻量.
+	// 使用前您需要先 make 它.
+	Store   map[string]interface{}
+	partner map[unsafe.Pointer]interface{} // 保存响应期关联变量
 }
 
 // Pick 返回类型指针 t 为键值的关联变量.

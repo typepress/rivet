@@ -6,28 +6,38 @@ import (
 	"net/http"
 	"os"
 	"sort"
-	"strconv"
 	"strings"
 )
 
 // Trie 是路由 patterns 的前缀树.
+// 请务必使用 NewTrie 设定分隔符生成对象. 否则分隔符将是 0x00
 type Trie struct {
 	Word    interface{} // 用来保存应用数据
-	pattern string      // pattern
+	pattern string      // 定值前缀或者匹配模式
 	parent  *Trie       // 父节点
-	childs  []*Trie     // 前缀子节点
-	matcher Matcher     // 匹配器
+	childs  []*Trie     // 前缀子节点和模式匹配子节点
+	matcher Matcher     // 匹配器, 模式匹配节点此值可能不为 nil
+	sep     byte        // 分割符
 
 	offset, kind, nop uint8
 	// offset childs 中第一个 matcher 的偏移量(下标)
-	// kind: fc "*", fd "**", fe "?", ff 定值,  其它表示参数名在 pattern 中的右边界
+	// kind   fc "*", fd "**", fe "?", ff 定值, 0 分组, 其它表示 ":name" 长度
 	// nop    至该节点参数数量 (number of parameters)
 
 }
 
+// NewTrie 返回以 sep 作为分割符的 Trie 根节点.
+// 参数 sep 不能是 ':', '*', '?', ' '.
+func NewTrie(sep byte) *Trie {
+	if strings.IndexByte(":*? ", sep) >= 0 {
+		panic("rivet: invalid separator")
+	}
+	return &Trie{sep: sep}
+}
+
 // newTrie 返回一个 *Trie.
-func newTrie() *Trie {
-	return new(Trie)
+func newTrie(sep byte) *Trie {
+	return &Trie{sep: sep}
 }
 
 // IsRoot 返回 t 是否为根节点, 根节点没有父节点.
@@ -63,11 +73,7 @@ func (t *Trie) AddChild(path string, build func(string) Matcher) *Trie {
 		build = builder
 	}
 
-	if t.pattern == "" && path[0] != '/' {
-		t.kind = 0xff
-		return t.mix(path, build, false, '.')
-	}
-	return t.mix(path, build, false, '/')
+	return t.mix(path, build, false)
 }
 
 // Mix 调用 Merge 方法, build 参数为内建 Matcher 生成器.
@@ -87,26 +93,10 @@ func (t *Trie) Merge(path string, build func(string) Matcher) *Trie {
 		build = builder
 	}
 
-	if t.pattern == "" && t.offset != 0 {
-		panic("rivet: invalid promiscuous mode: HostRouter + PathRouter")
-	}
-
-	return t.mix(path, build, true, '/')
+	return t.mix(path, build, true)
 }
 
-const maxSlash = 251
-
-func max251(max int, x uint8) uint8 {
-	if x == maxSlash || max >= maxSlash {
-		return maxSlash
-	}
-	if max > int(x) {
-		return uint8(max)
-	}
-	return x
-}
-
-func (t *Trie) mix(path string, build func(string) Matcher, merge bool, sep byte) *Trie {
+func (t *Trie) mix(path string, build func(string) Matcher, merge bool) *Trie {
 
 	if path == "" {
 		return t
@@ -122,10 +112,13 @@ func (t *Trie) mix(path string, build func(string) Matcher, merge bool, sep byte
 	if i == -1 {
 		i = len(path)
 	} else if path[i] == '?' {
-		if i == 0 {
-			panic("rivet: invalid path: " + path)
+		// if i == 0 {
+		// 	panic("rivet: invalid path: " + path)
+		// }
+		// i--
+		if i != 0 {
+			i--
 		}
-		i--
 	}
 
 	if i != 0 {
@@ -145,37 +138,32 @@ func (t *Trie) mix(path string, build func(string) Matcher, merge bool, sep byte
 	// Matcher 节点
 
 	if path[0] == ':' {
-		// ":name pattern" 只能在段尾部
-		i = strings.IndexByte(path, sep)
+		i = strings.IndexByte(path, t.sep)
 		if i == -1 {
-			// 特别支持 host 路由, 最后一段端口
-			if sep == '.' {
-				_, err := strconv.ParseUint(path[0:], 10, 0)
-				if err == nil {
-					return t.addChild(path)
-				}
-			}
-
 			i = len(path)
 		}
 
-		return t.mixMatcher(path[:i], build, merge).mix(path[i:], build, false, sep)
+		return t.mixMatcher(path[:i], build, merge).mix(path[i:], build, false)
 	}
 
 	if path[0] == '*' {
+		// 要增加翻转匹配 ???
 		if path == "**" {
 			return t.mixMatcher("**", nil, merge)
 		}
 		// "*" || "/a/b*", "/a/b**", "/a/b*/..."
-		if len(path) > 1 && path[1] != sep {
+		if len(path) > 1 && path[1] != t.sep {
 			panic("rivet: invalid path: " + path)
 		}
-		return t.mixMatcher("*", nil, merge).mix(path[1:], build, false, sep)
+		return t.mixMatcher("*", nil, merge).mix(path[1:], build, false)
 
 	}
 
-	// "x?"
-	return t.mixMatcher(path[:2], nil, merge).mix(path[2:], build, false, sep)
+	// "x?" || "?" 有可能问号打头
+	if path[0] == '?' {
+		return t.mixMatcher(path[:1], nil, merge).mix(path[1:], build, false)
+	}
+	return t.mixMatcher(path[:2], nil, merge).mix(path[2:], build, false)
 }
 
 // mixMatcher 增加匹配子节点, 特别的 "*", "**" 匹配总是位于最后两个
@@ -185,7 +173,7 @@ func (t *Trie) mixMatcher(pattern string, build func(string) Matcher, merge bool
 			return t
 		}
 
-		if t.pattern == "" {
+		if t.pattern != "" {
 			panic(fmt.Sprintf("rivet: can not Merge %v to %v", pattern, t.pattern))
 		}
 	} else {
@@ -214,7 +202,7 @@ func (t *Trie) mixMatcher(pattern string, build func(string) Matcher, merge bool
 			k--
 		}
 
-		n := newTrie()
+		n := newTrie(t.sep)
 		n.parent = t
 		t.childs[i] = n
 		t = n
@@ -226,14 +214,29 @@ func (t *Trie) mixMatcher(pattern string, build func(string) Matcher, merge bool
 		// ":name pattern"
 		k := strings.IndexByte(pattern, ' ')
 		if k == -1 {
+			// 只有数字的 name 当做定值处理, 比如 ":80".
+			for k = len(pattern) - 1; k > 0; k-- {
+				if pattern[k] < '0' || pattern[k] > 9 {
+					break
+				}
+			}
+			// 只有一个 ':' 也当做定值处理
+			if k == 0 {
+				if merge {
+					return t.merge(pattern)
+				} else {
+					return t.addChild(pattern)
+				}
+			}
+
 			// 优化 ":name", 免生成 matcher
 			k = len(pattern)
 		} else {
 			t.matcher = build(pattern[k+1:])
 		}
 
-		if k > 0xfc {
-			panic("rivet: parameter name is too long: " + pattern)
+		if k > 0xfb {
+			panic("rivet: parameter name too much: " + pattern)
 		}
 
 		t.kind = uint8(k)
@@ -242,25 +245,25 @@ func (t *Trie) mixMatcher(pattern string, build func(string) Matcher, merge bool
 		t.kind = 0xfc
 	} else if pattern == "**" {
 		t.kind = 0xfd
-	} else if len(pattern) == 2 && pattern[1] == '?' {
+	} else { //if len(pattern) == 2 && pattern[1] == '?' {
+		// 应该可以支持个 "?"
 		t.kind = 0xfe
-	} else {
-		panic("rivet: invalid pattern: " + pattern)
 	}
+	// else {
+	// 	panic("rivet: invalid pattern: " + pattern)
+	// }
 
-	return t.countParams()
-}
-
-// 计算截止到该节点的参数数量
-func (t *Trie) countParams() *Trie {
+	// 计算截止到该节点的参数数量, 限制最大只能有 255 个 参数
 
 	if t.parent != nil {
 		t.nop = t.parent.nop
-		if t.nop == 0xff {
-			return t
-		}
 	}
 
+	if t.nop == 0xff {
+		panic("rivet: to much parameters")
+	}
+
+	// 只有 ":name", "**" 才增加参数
 	if t.kind == 0xfd || t.kind < 0xfc {
 		t.nop++
 	}
@@ -287,7 +290,7 @@ func (t *Trie) merge(path string) *Trie {
 	// 分割 t
 	if i != 0 && i < len(t.pattern) {
 
-		n := newTrie()
+		n := newTrie(t.sep)
 		n.parent = t
 		n.pattern, t.pattern = t.pattern[i:], t.pattern[:i]
 
@@ -326,7 +329,7 @@ func (t *Trie) addChild(path string) *Trie {
 	for ; i < l; l-- {
 		t.childs[l] = t.childs[l-1]
 	}
-	n := newTrie()
+	n := newTrie(t.sep)
 	n.kind = 0xff
 	n.parent = t
 	n.pattern = path
@@ -347,7 +350,7 @@ func (t *Trie) Fprint(w io.Writer) {
 	if w == nil {
 		return
 	}
-	fmt.Fprintln(w, "word offset kind nop pattern\n")
+	fmt.Fprintln(w, "word kind offset nop pattern\n")
 	t.output(w, 0)
 }
 
@@ -358,7 +361,7 @@ func (t *Trie) output(w io.Writer, count int) {
 		word = "N"
 	}
 
-	fmt.Fprintf(w, "%s %2x %2x %2x  %s%s\n", word, t.offset, t.kind, t.nop, strings.Repeat(" ", count), t.pattern)
+	fmt.Fprintf(w, "%s %2x %2x %2x  %s%s\n", word, t.kind, t.offset, t.nop, strings.Repeat(" ", count), t.pattern)
 
 	count += len(t.pattern)
 
@@ -382,8 +385,6 @@ type bucket struct {
 	trie   *Trie
 	params Params
 	err    error
-	add    bool // 是否用 append 加入参数
-	sep    byte
 }
 
 // Node 调用 Match 返回 path 匹配到的节点, 忽略 http.Request, Params 和 error.
@@ -405,18 +406,11 @@ func (t *Trie) Node(path string) *Trie {
 //   err    pattern 对应的 Matcher 有可能返回错误.
 //
 // Catch-All 匹配到的字符串总是以 "**" 为名保存至返回的 Params 中.
-func (t *Trie) Match(path string, req *http.Request) (node *Trie, params Params, err error) {
-	var buck *bucket
+func (t *Trie) Match(path string, req *http.Request) (*Trie, Params, error) {
 	if path == "" {
-		return // nil, nil, nil
+		return nil, nil, nil
 	}
-
-	if t.pattern == "" && path[0] != '/' {
-		buck = &bucket{req: req, sep: '.'}
-	} else {
-		buck = &bucket{req: req, sep: '/'}
-	}
-
+	buck := &bucket{req: req}
 	t.match(path, buck)
 	return buck.trie, buck.params, buck.err
 }
@@ -435,7 +429,7 @@ func (t *Trie) match(path string, buck *bucket) {
 			return
 		}
 	case 0xfc:
-		i = strings.IndexByte(path, buck.sep)
+		i = strings.IndexByte(path, t.sep)
 		// "/path*" 可以匹配 "/path*/", "/path/"
 		if i == -1 {
 			if t.Word != nil {
@@ -446,22 +440,24 @@ func (t *Trie) match(path string, buck *bucket) {
 	case 0xfd:
 		if t.Word != nil {
 			nop := int(t.nop)
-			if nop == 255 {
-				buck.add = true
-				buck.params = Params{Argument{"**", path, path}}
-			} else {
-				buck.params = make(Params, nop)
-				buck.params[nop-1] = Argument{"**", path, path}
-			}
+			buck.params = make(Params, nop)
+
+			nop--
+			buck.params[nop].Name = "**"
+			buck.params[nop].Source = path
+			// buck.params[nop].Value = path
+
 			buck.trie = t
+
 		}
 		return
 	case 0xfe: // ?
-		if path[0] == t.pattern[0] {
+		if path[0] == t.pattern[0] || t.pattern[0] == '?' {
 			i = 1
 		}
+	case 0: // 无共同前缀根节点
 	default: // ":"
-		i = strings.IndexByte(path, buck.sep)
+		i = strings.IndexByte(path, t.sep)
 		if i == -1 {
 			i = len(path)
 		}
@@ -471,34 +467,38 @@ func (t *Trie) match(path string, buck *bucket) {
 				return
 			}
 
-			if err, ok := val.(error); ok {
+			if val == isOk {
+				val = nil
+			} else if err, ok := val.(error); ok {
 				buck.trie = t
 				buck.err = err
 				return
 			}
 
 		}
-
-		if i == len(path) && t.Word != nil {
-			nop := int(t.nop)
-			if nop == 255 {
-				buck.add = true
-				buck.params = Params{Argument{t.pattern[1:int(t.kind)], path[:i], val}}
-			} else {
-				buck.params = make(Params, nop)
-				buck.params[nop-1] = Argument{t.pattern[1:int(t.kind)], path[:i], val}
-			}
-			buck.trie = t
-			return
-		}
 	}
 
-	// pattern 已经匹配成功
 	offset := int(t.offset)
 
-	if i != len(path) {
+	if i == len(path) {
+		// path 用尽, 必定是末端
 
-		// 递归匹配 childs
+		// 处理最后一段可选尾字符匹配
+		if t.Word == nil {
+			l := len(t.childs)
+			for j := offset; j < l; j++ {
+				if t.childs[j].kind == 0xfe && t.childs[j].Word != nil {
+					buck.trie = t.childs[j]
+					break
+				}
+			}
+
+		} else {
+			buck.trie = t
+		}
+
+	} else if buck.trie == nil {
+		// t 匹配成功, 但不是终端, 递归匹配 childs
 		c := path[i]
 		j := 0
 		for j < offset {
@@ -524,45 +524,23 @@ func (t *Trie) match(path string, buck *bucket) {
 				}
 			}
 		}
-
-	} else {
-
-		// 最后一段
-		if t.Word == nil {
-			// 特别处理可选尾斜线
-			if offset != 0 && buck.sep == '/' {
-				l := len(t.childs)
-				for j := offset; j < l; j++ {
-					if t.childs[j].pattern == "/?" && t.childs[j].Word != nil {
-						buck.trie = t.childs[j]
-						break
-					}
-				}
-			}
-
-			if buck.trie == nil {
-				return
-			}
-		} else {
-			buck.trie = t
-		}
 	}
 
-	if buck.trie != nil && t.kind < 0xfc && i != 0 { // i == 0 表示 pattern == ""
+	if buck.trie == nil {
+		return
+	}
 
+	// 匹配成功增加参数
+	if t.kind < 0xfc && t.kind > 1 { // kind == 1 表示参数无命名, 只匹配不保存
 		nop := int(t.nop)
-
-		if buck.add || nop == 255 {
-			buck.add = true
-			buck.params = append(buck.params, Argument{t.pattern[1:int(t.kind)], path[:i], val})
-			return
-		}
 
 		if buck.params == nil {
 			buck.params = make(Params, nop)
 		}
-
-		buck.params[nop-1] = Argument{t.pattern[1:int(t.kind)], path[:i], val}
+		nop--
+		buck.params[nop].Name = t.pattern[1:int(t.kind)]
+		buck.params[nop].Source = path[:i]
+		buck.params[nop].Value = val
 	}
 
 	return

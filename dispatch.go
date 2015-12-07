@@ -199,7 +199,8 @@ func (d dispatch) Dispatch(c *Context) bool {
 	return true
 }
 
-// ToDispatcher 包装 handler 为 Dispatcher
+// ToDispatcher 包装 handler 为 Dispatcher.
+// 特别的, 如果 handler 函数中包含 Store 类型参数
 func ToDispatcher(handler ...interface{}) Dispatcher {
 	var fun reflect.Value
 	var withContext bool

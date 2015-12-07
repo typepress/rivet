@@ -30,6 +30,14 @@ var Matches = map[string]func(string) Matcher{
 	"reg":    bRegexp,
 }
 
+var isOk = echo(echo)
+
+// Ok 返回一个非 nil interface{}, 可被 Matcher 调用并返回该值, 表示匹配值就是原字符串,
+// 那么 Trie 匹配到的 Argument.Vlaue 的值就是 nil. 目的是节省内存开销.
+func Ok() interface{} {
+	return isOk
+}
+
 // Matcher  用于匹配, 转换 URL.Path 参数.
 type Matcher interface {
 
@@ -42,11 +50,11 @@ type Matcher interface {
 	//
 	// req 过滤器可能需要 Request 的信息.
 	//
-	// 返回值:
-	//   str 提取的字符串值.
-	//   val 转换后的数据.
-	//   ok  通过返回真, 否则返回假.
-	//       如果为假且 val 为 false, 那么终止匹配.
+	// 返回值 val:
+	//
+	//   nil   匹配失败.
+	//   Ok()  匹配成功且 text 作为返回值保存至 Argument.Source.
+	//   其它  匹配成功, 保存至 Argument.Value.
 	Match(text string, req *http.Request) (val interface{})
 }
 
@@ -172,7 +180,7 @@ func (n mString) Match(s string, _ *http.Request) interface{} {
 	if n != 0 && len(s) < int(n) {
 		return nil
 	}
-	return s
+	return isOk
 }
 
 func (n mAlpha) Match(s string, _ *http.Request) interface{} {
@@ -186,7 +194,7 @@ func (n mAlpha) Match(s string, _ *http.Request) interface{} {
 			return nil
 		}
 	}
-	return s
+	return isOk
 }
 
 func (n mAlnum) Match(s string, _ *http.Request) interface{} {
@@ -205,7 +213,7 @@ func (n mAlnum) Match(s string, _ *http.Request) interface{} {
 			return nil
 		}
 	}
-	return s
+	return isOk
 }
 
 func (n mUint) Match(s string, _ *http.Request) interface{} {
@@ -256,7 +264,7 @@ func (n mHex) Match(s string, _ *http.Request) interface{} {
 			return nil
 		}
 	}
-	return s
+	return isOk
 }
 
 func (f *mRegexp) Match(s string, _ *http.Request) interface{} {

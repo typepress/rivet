@@ -107,7 +107,7 @@ func (r Router) Handle(method string, pattern string, handler ...interface{}) *T
 
 	t := r[method]
 	if t == nil {
-		t = newTrie()
+		t = newTrie('/')
 		r[method] = t
 	}
 
@@ -132,7 +132,7 @@ type HostRouter struct {
 
 // NewHostRouter
 func NewHostRouter() *HostRouter {
-	return &HostRouter{newTrie(), HandleError}
+	return &HostRouter{newTrie('.'), HandleError}
 }
 
 // Add 添加 host 路由 handler.
@@ -168,7 +168,7 @@ func (r *HostRouter) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	}
 
 	if d.IsInjector() {
-		d.Dispatch(NewContext(params, rw, req))
+		d.Dispatch(&Context{Params: params, Res: rw, Req: req})
 	} else {
 		d.Hand(params, rw, req)
 	}

@@ -145,7 +145,7 @@ Catch-All
 
     多数情况下对于路由 Handler 可以通过参数类型自动匹配事先准备好的变量完成调用.
 
-Context 起到变量容器作用, 支持注入(Injector)变量, 有三个关键方法:
+Context 起到变量容器作用, 支持注入(Injector)反射调用, 有三个关键方法:
 
 ```go
     // MapTo 以 t 的类型为 key 把变量 v 关联到 context. 相同 t 值只保留一个.
@@ -158,8 +158,10 @@ Context 起到变量容器作用, 支持注入(Injector)变量, 有三个关键�
     Map(v interface{})
 ```
 
-Dispatch 方法包装路由 handler, 结合 Context 实现支持注入的路由调用器 Dispatcher.
+如果注入变量不是为了反射调用, 那么直接操作 Context.Store 更轻量.
+使用 Context.Store 前您需要先 make 它.
 
+Dispatch 方法包装路由 handler, 结合 Context 实现支持注入的路由调用器 Dispatcher.
 
 HostRouter
 ==========
@@ -181,58 +183,78 @@ hr.Add("*.godoc.org", godoc)
 Performance
 ===========
 
-以下是与 [Echo][] 对比结果, Rivet 未使用注入.
+以下是 Rivet 未使用注入时与 [Echo][], [Gin][] Benchmark 对比结果.
 
 ```
 #GithubAPI Routes: 203
    Echo: 76040 Bytes
-   Rivet: 42840 Bytes
+   Gin: 52672 Bytes
+   Rivet: 46088 Bytes
 
 #GPlusAPI Routes: 13
    Echo: 6296 Bytes
-   Rivet: 3064 Bytes
+   Gin: 3856 Bytes
+   Rivet: 3272 Bytes
 
 #ParseAPI Routes: 26
    Echo: 7216 Bytes
-   Rivet: 5680 Bytes
+   Gin: 6880 Bytes
+   Rivet: 6096 Bytes
 
 #Static Routes: 157
    Echo: 60192 Bytes
-   Rivet: 23880 Bytes
+   Gin: 30544 Bytes
+   Rivet: 26392 Bytes
 
 PASS
-BenchmarkEcho_Param         20000000            97.7 ns/op         0 B/op          0 allocs/op
-BenchmarkRivet_Param         5000000           254 ns/op          48 B/op          1 allocs/op
-BenchmarkEcho_Param5        10000000           175 ns/op           0 B/op          0 allocs/op
-BenchmarkRivet_Param5        2000000           731 ns/op         240 B/op          1 allocs/op
-BenchmarkEcho_Param20        3000000           481 ns/op           0 B/op          0 allocs/op
-BenchmarkRivet_Param20        500000          2538 ns/op        1024 B/op          1 allocs/op
-BenchmarkEcho_ParamWrite    10000000           212 ns/op          16 B/op          1 allocs/op
-BenchmarkRivet_ParamWrite    5000000           347 ns/op          48 B/op          1 allocs/op
-BenchmarkEcho_GithubStatic  10000000           122 ns/op           0 B/op          0 allocs/op
-BenchmarkRivet_GithubStatic 10000000           142 ns/op           0 B/op          0 allocs/op
-BenchmarkEcho_GithubParam   10000000           199 ns/op           0 B/op          0 allocs/op
-BenchmarkRivet_GithubParam   3000000           567 ns/op          96 B/op          1 allocs/op
-BenchmarkEcho_GithubAll        30000         51867 ns/op           0 B/op          0 allocs/op
-BenchmarkRivet_GithubAll       10000        118267 ns/op       16272 B/op        167 allocs/op
-BenchmarkEcho_GPlusStatic   20000000            94.5 ns/op         0 B/op          0 allocs/op
-BenchmarkRivet_GPlusStatic  10000000           102 ns/op           0 B/op          0 allocs/op
-BenchmarkEcho_GPlusParam    10000000           151 ns/op           0 B/op          0 allocs/op
-BenchmarkRivet_GPlusParam    5000000           353 ns/op          48 B/op          1 allocs/op
-BenchmarkEcho_GPlus2Params  10000000           176 ns/op           0 B/op          0 allocs/op
-BenchmarkRivet_GPlus2Params  3000000           584 ns/op          96 B/op          1 allocs/op
-BenchmarkEcho_GPlusAll        500000          2420 ns/op           0 B/op          0 allocs/op
-BenchmarkRivet_GPlusAll       300000          4769 ns/op         768 B/op         11 allocs/op
-BenchmarkEcho_ParseStatic   20000000            96.3 ns/op         0 B/op          0 allocs/op
-BenchmarkRivet_ParseStatic  20000000            98.9 ns/op         0 B/op          0 allocs/op
-BenchmarkEcho_ParseParam    20000000           111 ns/op           0 B/op          0 allocs/op
-BenchmarkRivet_ParseParam    5000000           282 ns/op          48 B/op          1 allocs/op
-BenchmarkEcho_Parse2Params  10000000           135 ns/op           0 B/op          0 allocs/op
-BenchmarkRivet_Parse2Params  3000000           425 ns/op          96 B/op          1 allocs/op
-BenchmarkEcho_ParseAll        300000          4270 ns/op           0 B/op          0 allocs/op
-BenchmarkRivet_ParseAll       200000          7446 ns/op         912 B/op         16 allocs/op
-BenchmarkEcho_StaticAll        50000         31607 ns/op           0 B/op          0 allocs/op
-BenchmarkRivet_StaticAll       50000         34967 ns/op           0 B/op          0 allocs/op
+BenchmarkEcho_Param         20000000          97 ns/op         0 B/op        0 allocs/op
+BenchmarkGin_Param          20000000          90 ns/op         0 B/op        0 allocs/op
+BenchmarkRivet_Param         5000000         233 ns/op        48 B/op        1 allocs/op
+BenchmarkEcho_Param5        10000000         176 ns/op         0 B/op        0 allocs/op
+BenchmarkGin_Param5         10000000         154 ns/op         0 B/op        0 allocs/op
+BenchmarkRivet_Param5        2000000         697 ns/op       240 B/op        1 allocs/op
+BenchmarkEcho_Param20        3000000         474 ns/op         0 B/op        0 allocs/op
+BenchmarkGin_Param20         5000000         378 ns/op         0 B/op        0 allocs/op
+BenchmarkRivet_Param20       1000000        2214 ns/op      1024 B/op        1 allocs/op
+BenchmarkEcho_ParamWrite    10000000         206 ns/op        16 B/op        1 allocs/op
+BenchmarkGin_ParamWrite     10000000         195 ns/op         0 B/op        0 allocs/op
+BenchmarkRivet_ParamWrite    3000000         421 ns/op       112 B/op        2 allocs/op
+BenchmarkEcho_GithubStatic  10000000         115 ns/op         0 B/op        0 allocs/op
+BenchmarkGin_GithubStatic   20000000         113 ns/op         0 B/op        0 allocs/op
+BenchmarkRivet_GithubStatic 10000000         127 ns/op         0 B/op        0 allocs/op
+BenchmarkEcho_GithubParam   10000000         197 ns/op         0 B/op        0 allocs/op
+BenchmarkGin_GithubParam    10000000         187 ns/op         0 B/op        0 allocs/op
+BenchmarkRivet_GithubParam   3000000         526 ns/op        96 B/op        1 allocs/op
+BenchmarkEcho_GithubAll        30000       45353 ns/op         0 B/op        0 allocs/op
+BenchmarkGin_GithubAll         30000       39494 ns/op         0 B/op        0 allocs/op
+BenchmarkRivet_GithubAll       20000       97124 ns/op     16272 B/op      167 allocs/op
+BenchmarkEcho_GPlusStatic   20000000          88 ns/op         0 B/op        0 allocs/op
+BenchmarkGin_GPlusStatic    20000000          87 ns/op         0 B/op        0 allocs/op
+BenchmarkRivet_GPlusStatic  20000000          81 ns/op         0 B/op        0 allocs/op
+BenchmarkEcho_GPlusParam    10000000         122 ns/op         0 B/op        0 allocs/op
+BenchmarkGin_GPlusParam     20000000         117 ns/op         0 B/op        0 allocs/op
+BenchmarkRivet_GPlusParam    5000000         298 ns/op        48 B/op        1 allocs/op
+BenchmarkEcho_GPlus2Params  10000000         170 ns/op         0 B/op        0 allocs/op
+BenchmarkGin_GPlus2Params   10000000         154 ns/op         0 B/op        0 allocs/op
+BenchmarkRivet_GPlus2Params  3000000         438 ns/op        96 B/op        1 allocs/op
+BenchmarkEcho_GPlusAll       1000000        2322 ns/op         0 B/op        0 allocs/op
+BenchmarkGin_GPlusAll        1000000        1916 ns/op         0 B/op        0 allocs/op
+BenchmarkRivet_GPlusAll       300000        4395 ns/op       768 B/op       11 allocs/op
+BenchmarkEcho_ParseStatic   20000000          91 ns/op         0 B/op        0 allocs/op
+BenchmarkGin_ParseStatic    20000000          87 ns/op         0 B/op        0 allocs/op
+BenchmarkRivet_ParseStatic  2000000           85 ns/op         0 B/op        0 allocs/op
+BenchmarkEcho_ParseParam    20000000         105 ns/op         0 B/op        0 allocs/op
+BenchmarkGin_ParseParam     20000000          96 ns/op         0 B/op        0 allocs/op
+BenchmarkRivet_ParseParam    5000000         261 ns/op        48 B/op        1 allocs/op
+BenchmarkEcho_Parse2Params  10000000         129 ns/op         0 B/op        0 allocs/op
+BenchmarkGin_Parse2Params   10000000         115 ns/op         0 B/op        0 allocs/op
+BenchmarkRivet_Parse2Params  3000000         397 ns/op        96 B/op        1 allocs/op
+BenchmarkEcho_ParseAll        300000        4223 ns/op         0 B/op        0 allocs/op
+BenchmarkGin_ParseAll         300000        3491 ns/op         0 B/op        0 allocs/op
+BenchmarkRivet_ParseAll       200000        6877 ns/op       912 B/op       16 allocs/op
+BenchmarkEcho_StaticAll        50000       30386 ns/op         0 B/op        0 allocs/op
+BenchmarkGin_StaticAll         50000       27437 ns/op         0 B/op        0 allocs/op
+BenchmarkRivet_StaticAll       50000       32593 ns/op         0 B/op        0 allocs/op
 ```
 
 
@@ -256,3 +278,4 @@ license that can be found in the LICENSE file.
 [benchmark]: //github.com/julienschmidt/go-http-routing-benchmark
 [examples]: //github.com/typepress/rivet/tree/master/examples
 [Echo]: //github.com/labstack/echo
+[Gin]: //github.com/gin-gonic/gin
