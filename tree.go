@@ -102,7 +102,7 @@ func (t *Trie) mix(path string, build func(string) Matcher, merge bool) *Trie {
 		return t
 	}
 
-	if t.pattern == "**" {
+	if t.kind == 0xfd {
 		panic("rivet: Catch-All ending with the trie.")
 	}
 
@@ -147,14 +147,24 @@ func (t *Trie) mix(path string, build func(string) Matcher, merge bool) *Trie {
 	}
 
 	if path[0] == '*' {
-		// 要增加翻转匹配 ???
-		if path == "**" {
-			return t.mixMatcher("**", nil, merge)
+		if len(path) > 1 {
+
+			// "**", "**suffixpath"
+			if path[1] == '*' {
+
+				if strings.IndexByte(path[2:], '*') != -1 {
+					panic("rivet: invalid path: " + path)
+				}
+
+				return t.mixMatcher(path, nil, merge)
+			}
+
+			// "*" || "/a/b*", "/a/b**", "/a/b*/..."
+			if len(path) > 1 && path[1] != t.sep {
+				panic("rivet: invalid path: " + path)
+			}
 		}
-		// "*" || "/a/b*", "/a/b**", "/a/b*/..."
-		if len(path) > 1 && path[1] != t.sep {
-			panic("rivet: invalid path: " + path)
-		}
+
 		return t.mixMatcher("*", nil, merge).mix(path[1:], build, false)
 
 	}
@@ -243,15 +253,12 @@ func (t *Trie) mixMatcher(pattern string, build func(string) Matcher, merge bool
 
 	} else if pattern == "*" {
 		t.kind = 0xfc
-	} else if pattern == "**" {
+	} else if strings.HasPrefix(pattern, "**") {
 		t.kind = 0xfd
 	} else { //if len(pattern) == 2 && pattern[1] == '?' {
 		// 应该可以支持个 "?"
 		t.kind = 0xfe
 	}
-	// else {
-	// 	panic("rivet: invalid pattern: " + pattern)
-	// }
 
 	// 计算截止到该节点的参数数量, 限制最大只能有 255 个 参数
 
@@ -361,7 +368,7 @@ func (t *Trie) output(w io.Writer, count int) {
 		word = "N"
 	}
 
-	fmt.Fprintf(w, "%s %2x %2x %2x  %s%s\n", word, t.kind, t.offset, t.nop, strings.Repeat(" ", count), t.pattern)
+	fmt.Fprintf(w, "%s %2x %3d %3d  %s%s\n", word, t.kind, t.offset, t.nop, strings.Repeat(" ", count), t.pattern)
 
 	count += len(t.pattern)
 
@@ -385,6 +392,7 @@ type bucket struct {
 	trie   *Trie
 	params Params
 	err    error
+	pool   bool
 }
 
 // Node 调用 Match 返回 path 匹配到的节点, 忽略 http.Request, Params 和 error.
@@ -418,8 +426,9 @@ func (t *Trie) Match(path string, req *http.Request) (*Trie, Params, error) {
 // match 负责 Matcher 匹配
 func (t *Trie) match(path string, buck *bucket) {
 	var (
-		i   int
-		val interface{}
+		i      int
+		val    interface{}
+		childs []*Trie
 	)
 
 	switch t.kind {
@@ -437,15 +446,20 @@ func (t *Trie) match(path string, buck *bucket) {
 			}
 			return
 		}
-	case 0xfd:
+	case 0xfd: // "**", "**path/to", 仅支持后缀匹配
 		if t.Word != nil {
+			if len(t.pattern) != 2 {
+				if !strings.HasSuffix(path, t.pattern[2:]) {
+					return
+				}
+			}
+
 			nop := int(t.nop)
 			buck.params = make(Params, nop)
-
 			nop--
 			buck.params[nop].Name = "**"
 			buck.params[nop].Source = path
-			// buck.params[nop].Value = path
+			// buck.params[nop].Value = nil
 
 			buck.trie = t
 
@@ -485,10 +499,11 @@ func (t *Trie) match(path string, buck *bucket) {
 
 		// 处理最后一段可选尾字符匹配
 		if t.Word == nil {
-			l := len(t.childs)
+			childs = t.childs
+			l := len(childs)
 			for j := offset; j < l; j++ {
-				if t.childs[j].kind == 0xfe && t.childs[j].Word != nil {
-					buck.trie = t.childs[j]
+				if childs[j].kind == 0xfe && childs[j].Word != nil {
+					buck.trie = childs[j]
 					break
 				}
 			}
@@ -499,26 +514,30 @@ func (t *Trie) match(path string, buck *bucket) {
 
 	} else if buck.trie == nil {
 		// t 匹配成功, 但不是终端, 递归匹配 childs
-		c := path[i]
-		j := 0
-		for j < offset {
-			h := j + (offset-j)/2
-			if t.childs[h].pattern[0] < c {
-				j = h + 1
+		var j, k, h int
+		var c byte = path[i]
+		childs = t.childs
+
+		j = offset
+
+		for k < j {
+			h = k + (j-k)/2
+			if childs[h].pattern[0] < c {
+				k = h + 1
 			} else {
-				offset = h
+				j = h
 			}
 		}
 
-		if j < offset && t.childs[j].pattern[0] == c {
-			t.childs[j].match(path[i:], buck)
+		if k < offset && childs[k].pattern[0] == c {
+			childs[k].match(path[i:], buck)
 		}
 
 		if buck.trie == nil {
+			k = len(childs)
+			for ; offset < k; offset++ {
+				childs[offset].match(path[i:], buck)
 
-			k := len(t.childs)
-			for j := offset; j < k; j++ {
-				t.childs[j].match(path[i:], buck)
 				if buck.trie != nil {
 					break
 				}
@@ -526,17 +545,13 @@ func (t *Trie) match(path string, buck *bucket) {
 		}
 	}
 
-	if buck.trie == nil {
-		return
-	}
-
 	// 匹配成功增加参数
-	if t.kind < 0xfc && t.kind > 1 { // kind == 1 表示参数无命名, 只匹配不保存
+	if buck.trie != nil && t.kind < 0xfc && t.kind > 1 { // kind == 1 表示参数无命名, 只匹配不保存
 		nop := int(t.nop)
-
 		if buck.params == nil {
 			buck.params = make(Params, nop)
 		}
+
 		nop--
 		buck.params[nop].Name = t.pattern[1:int(t.kind)]
 		buck.params[nop].Source = path[:i]

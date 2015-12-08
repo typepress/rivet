@@ -34,6 +34,7 @@ var routes = []string{
 	`/just:id ^\d+$`,
 	"/tips?",
 	"/slash/?",
+	"/suffix**.go",
 }
 
 var urls = []string{
@@ -68,6 +69,7 @@ var urls = []string{
 	"/just998",
 	"/tip",
 	"/slash/",
+	"/suffix/path/to.go",
 }
 
 var hostRoutes = []string{
@@ -297,6 +299,16 @@ func TestTrie_Add(t *testing.T) {
 	testTrie(t, r, r.Add, hostRoutes, hosts)
 }
 
+func TestTrie_Params(t *testing.T) {
+	r := newTrie('/')
+	r.Mix("/:a/:b/:c/:d/:e/:f/:g/:h/:i/:j/:k/:l/:m/:n/:o/:p/:q/:r/:s/:t").Word = 0
+	n, params, _ := r.Match("/a/b/c/d/e/f/g/h/i/j/k/l/m/n/o/p/q/r/s/t", nil)
+	if n == nil || params == nil || len(params) != 20 {
+		r.Print()
+		t.Fatal(n, "\n", params)
+	}
+}
+
 func rivetHandler(c *Context) {}
 
 func BenchmarkRivet_Static(b *testing.B) {
@@ -333,7 +345,7 @@ func BenchmarkTrie_Static(b *testing.B) {
 	}
 }
 
-func BenchmarkTrie_Params20(b *testing.B) {
+func BenchmarkTrie_Params(b *testing.B) {
 	r := newTrie('/')
 
 	r.Mix("/:a/:b/:c/:d/:e/:f/:g/:h/:i/:j/:k/:l/:m/:n/:o/:p/:q/:r/:s/:t").Word = 0
