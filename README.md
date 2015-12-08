@@ -80,27 +80,25 @@ Rivet 内建了一些路由, 它们保存在全局对象 Matches 中.
 
 把 "^id(\d+)$" 作为模式名在 Matches 中是找不到的, 事实上使用者也不会这样命名.
 
-星号通配
+单星通配
 --------
 
-单个星号可匹配任意个非 "/" 字符
+单个星号可匹配任意个非分割(通常是 "/", 可定制)字符
+
+双星通配
+---------
+
+以 "**" 结尾的模式称作 Catch-All. Trie.Match 总是以 "**" 为名保存匹配字符串到返回的 Params 中.
+
+形如 "/src/github.com/**.go", "**" 后还有定值的称作后缀匹配.
 
 问号单配
 --------
 
 单个问号可匹配零或一个问号之前的字符. "/flavors?" 可匹配 "/flavor" 和 "/flavors".
 
-可选尾斜线
-----------
-
-问号单配支持可选尾斜线, "/flavors/?" 可匹配 "/flavors" 和 "/flavors/".
+可选尾斜线匹配只是问号单配得一个实例 "/flavors/?" 可匹配 "/flavors" 和 "/flavors/".
 建议在 http.Handler 中处理可选尾斜线, 而不是路由中.
-
-Catch-All
----------
-
-以 "**" 结尾的模式称作 Catch-All. Trie.Match 总是以 "**" 为名保存匹配字符串到返回的 Params 中.
-
 
 
 顺序匹配
@@ -178,6 +176,13 @@ godoc := rivet.New()
 hr.Add("*.golang.org", golang)
 hr.Add("*.godoc.org", godoc)
 ```
+
+
+分组路由
+========
+
+Rivet 中没有独立的分组路由方法, 但可以通过组合几个 Trie 使用 Trie.Add 方法来实现.
+HostRouter 就是这样的例子.
 
 
 Performance
